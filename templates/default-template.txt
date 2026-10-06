@@ -1,0 +1,9 @@
+🛍️ *{product_name}*
+
+💰 قیمت: {price}
+📦 وضعیت: {stock_status}
+🏷️ دسته: {categories}
+{attributes}
+{custom_fields}
+
+🔗 {product_url}

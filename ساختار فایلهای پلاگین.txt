@@ -1,0 +1,15 @@
+wp-content/plugins/telegram-woo/
+├── telegram-woo.php              ← فایل اصلی جدید
+├── includes/
+│   ├── class-wcts-settings.php   ← فقط متد add_menu عوض شود
+│   ├── class-wcts-product-data.php
+│   ├── class-wcts-watermark.php
+│   ├── class-wcts-telegram-api.php
+│   ├── class-wcts-hooks.php
+│   └── class-wcts-admin-page.php
+├── assets/
+│   ├── admin.css
+│   └── fonts/
+│       └── Vazirmatn-Bold.ttf
+└── templates/
+    └── default-template.txt

@@ -1,0 +1,108 @@
+.wcts-wrap .wcts-section {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+.wcts-wrap .wcts-section h2 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+    font-size: 16px;
+}
+
+.wcts-wrap .wcts-section h3 {
+    font-size: 14px;
+    color: #1d2327;
+    margin: 20px 0 10px;
+}
+
+.wcts-wrap .form-table th {
+    width: 220px;
+    font-weight: 600;
+}
+
+.wcts-chat-row,
+.wcts-field-row,
+.wcts-button-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.wcts-hours-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 6px;
+    margin: 10px 0;
+    max-width: 700px;
+}
+
+.wcts-hour-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #f6f7f7;
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background .15s;
+}
+
+.wcts-hour-item:hover {
+    background: #eef5fb;
+    border-color: #a7c7e7;
+}
+
+.wcts-hour-item input:checked + span {
+    font-weight: 700;
+    color: #1d4ed8;
+}
+
+.wcts-placeholders {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.wcts-ph {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    background: #f0f6fc;
+    border: 1px solid #c3d9ed;
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    transition: background .2s;
+    line-height: 1.2;
+}
+
+.wcts-ph:hover {
+    background: #dbeafe;
+}
+
+.wcts-ph code {
+    font-size: 11px;
+    color: #1d4ed8;
+    background: none;
+    padding: 0;
+}
+
+.wcts-ph small {
+    font-size: 10px;
+    color: #666;
+}
+
+#wcts-test-result {
+    display: inline-block;
+    vertical-align: middle;
+}
