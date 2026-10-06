@@ -43,10 +43,10 @@ class WCTS_Settings {
 
     public static function add_menu() {
         add_menu_page(
-            'ارسال تلگرام',                 // عنوان صفحه
-            'تلگرام وو',                    // ← نام نمایشی در سایدبار
+            'ارسال تلگرام',
+            'تلگرام وو',
             'manage_options',
-            'wcts-settings',               // ← اسلاگ دستنخورده (بهخاطر حفظ لینکهای قبلی)
+            'wcts-settings',
             [ __CLASS__, 'render_page' ],
             'dashicons-format-chat',
             56
@@ -69,12 +69,13 @@ class WCTS_Settings {
             'bot_token', 'worker_url', 'image_size',
             'watermark_type', 'watermark_text', 'watermark_image_id',
             'watermark_position', 'watermark_color', 'variable_behavior',
+            'short_desc_line_emoji',   // ⭐ جدید
         ];
         foreach ( $text_keys as $k ) {
             $out[ $k ] = isset( $input[ $k ] ) ? sanitize_text_field( $input[ $k ] ) : ( $defaults[ $k ] ?? '' );
         }
 
-        // قالب پیام (متن چندخطی - باید Markdown حفظ شود)
+        // قالب پیام
         $out['template'] = isset( $input['template'] )
             ? wp_kses_post( $input['template'] )
             : $defaults['template'];
@@ -122,8 +123,7 @@ class WCTS_Settings {
             }
         }
 
-        // دکمههای اینلاین — ⚠️ از sanitize_text_field استفاده میکنیم نه esc_url_raw
-        // چون esc_url_raw کاراکترهای {} را strip میکند و placeholder خراب میشد.
+        // دکمههای اینلاین
         $out['inline_buttons'] = [];
         if ( ! empty( $input['inline_buttons'] ) && is_array( $input['inline_buttons'] ) ) {
             foreach ( $input['inline_buttons'] as $b ) {
@@ -133,7 +133,7 @@ class WCTS_Settings {
 
                 $out['inline_buttons'][] = [
                     'text' => sanitize_text_field( $text ),
-                    'url'  => sanitize_text_field( $url ), // placeholders حفظ میشوند
+                    'url'  => sanitize_text_field( $url ),
                 ];
             }
         }
@@ -163,7 +163,6 @@ class WCTS_Settings {
             wp_send_json_error( [ 'message' => 'دسترسی غیرمجاز' ] );
         }
 
-        // ذخیره موقت مقادیر فرم
         if ( isset( $_POST['bot_token'] ) || isset( $_POST['worker_url'] ) ) {
             $current = get_option( self::$option_name, [] );
             if ( isset( $_POST['bot_token'] ) ) {
@@ -381,8 +380,8 @@ class WCTS_Settings {
                                         <?php endforeach; ?>
                                     </select>
                                     <p class="description">
-                                        ✅ اگر محصول انتخاب کنید: همانها به ترتیب (از اولین به آخر و بازگشت به ابتدا) ارسال میشوند.<br/>
-                                        🔄 اگر خالی بگذارید: هر بار محصولات به صورت <strong>تصادفی</strong> از کل فروشگاه انتخاب میشوند.
+                                        ✅ اگر محصول انتخاب کنید: همانها به ترتیب ارسال میشوند.<br/>
+                                        🔄 اگر خالی بگذارید: هر بار محصولات <strong>تصادفی</strong> انتخاب میشوند.
                                     </p>
                                 </td>
                             </tr>
@@ -435,11 +434,36 @@ class WCTS_Settings {
                                 </div>
                             </td>
                         </tr>
+
+                        <!-- ⭐ جدید: ایموجی هر خط توضیح کوتاه -->
+                        <tr>
+                            <th>ایموجی هر خط توضیحات کوتاه</th>
+                            <td>
+                                <input type="text"
+                                       name="<?php echo self::$option_name; ?>[short_desc_line_emoji]"
+                                       value="<?php echo esc_attr( $opts['short_desc_line_emoji'] ); ?>"
+                                       class="regular-text"
+                                       placeholder="مثلاً: 🔹"
+                                       maxlength="10"
+                                       style="font-size:18px;" />
+                                <p class="description">
+                                    این ایموجی به ابتدای <strong>هر خط</strong> از توضیح کوتاه محصول اضافه میشود.<br/>
+                                    اگه خالی بگذاری، هیچ ایموجی اضافه نمیشه.
+                                </p>
+                                <div style="margin-top:8px;font-size:16px;">
+                                    مثال:
+                                    <span style="background:#f0f6fc;padding:4px 8px;border-radius:4px;">
+                                        🔹 جنس چرم طبیعی<br/>
+                                        🔹 سایز ۴۲ تا ۴۵
+                                    </span>
+                                </div>
+                            </td>
+                        </tr>
                     </table>
 
                     <h3>🔘 دکمههای شیشهای تلگرام</h3>
                     <p class="description">
-                        میتوانید در متن دکمه و لینک، از همان placeholderهای بالا استفاده کنید. مثال لینک: <code>{product_url}</code>
+                        میتوانید در متن دکمه و لینک، از همان placeholderهای بالا استفاده کنید.
                     </p>
                     <div id="wcts-buttons-wrapper">
                         <?php
@@ -449,7 +473,7 @@ class WCTS_Settings {
                                 <input type="text"
                                        name="<?php echo self::$option_name; ?>[inline_buttons][<?php echo $i; ?>][text]"
                                        value="<?php echo esc_attr( $btn['text'] ); ?>"
-                                       placeholder="متن دکمه (مثلاً: 🛒 خرید)" class="regular-text" />
+                                       placeholder="متن دکمه" class="regular-text" />
                                 <input type="text"
                                        name="<?php echo self::$option_name; ?>[inline_buttons][<?php echo $i; ?>][url]"
                                        value="<?php echo esc_attr( $btn['url'] ); ?>"
@@ -459,9 +483,6 @@ class WCTS_Settings {
                         <?php endforeach; ?>
                     </div>
                     <button type="button" class="button" id="wcts-add-button">+ افزودن دکمه</button>
-                    <p class="description" style="color:#b32d2e;">
-                        ⚠️ نکته تلگرام: لینک دکمه باید <strong>HTTPS</strong> باشد. اگر سایت شما HTTP است، دکمه کار نمیکند.
-                    </p>
                 </div>
 
                 <!-- ===== بخش ۴: عکسها ===== -->
@@ -551,9 +572,6 @@ class WCTS_Settings {
                                         <?php endif;
                                     endif; ?>
                                 </div>
-                                <p class="description">
-                                    ℹ️ پیشنهاد: از PNG با پسزمینه شفاف استفاده کنید.
-                                </p>
                             </td>
                         </tr>
                         <tr class="wcts-wm-image-row"
@@ -563,7 +581,6 @@ class WCTS_Settings {
                                 <input type="number" name="<?php echo self::$option_name; ?>[watermark_image_width]"
                                        value="<?php echo esc_attr( $opts['watermark_image_width'] ); ?>"
                                        min="10" max="2000" class="small-text" /> px
-                                <p class="description">ارتفاع خودکار حفظ نسبت محاسبه میشود.</p>
                             </td>
                         </tr>
                         <tr>
@@ -653,7 +670,6 @@ class WCTS_Settings {
             var optionName = '<?php echo self::$option_name; ?>';
             var testNonce = '<?php echo wp_create_nonce( "wcts_test_nonce" ); ?>';
 
-            // ====== مقصدها ======
             $('#wcts-add-chat').on('click', function() {
                 $('#wcts-chat-ids-wrapper').append(
                     '<div class="wcts-chat-row">' +
@@ -666,7 +682,6 @@ class WCTS_Settings {
                 $(this).closest('.wcts-chat-row').remove();
             });
 
-            // ====== ویژگی سفارشی ======
             $('#wcts-add-field').on('click', function() {
                 var idx = $('#wcts-custom-fields-wrapper .wcts-field-row').length;
                 $('#wcts-custom-fields-wrapper').append(
@@ -682,7 +697,6 @@ class WCTS_Settings {
                 $(this).closest('.wcts-field-row').remove();
             });
 
-            // ====== دکمه اینلاین ======
             $('#wcts-add-button').on('click', function() {
                 var idx = $('#wcts-buttons-wrapper .wcts-button-row').length;
                 $('#wcts-buttons-wrapper').append(
@@ -698,7 +712,6 @@ class WCTS_Settings {
                 $(this).closest('.wcts-button-row').remove();
             });
 
-            // ====== placeholder ======
             $('.wcts-ph').on('click', function() {
                 var ph = $(this).data('ph');
                 var textarea = $('#wcts_template');
@@ -710,19 +723,16 @@ class WCTS_Settings {
                 textarea.focus();
             });
 
-            // ====== ابعاد سفارشی ======
             $('#wcts_image_size').on('change', function() {
                 $('.wcts-custom-size-row').toggle( $(this).val() === 'custom' );
             });
 
-            // ====== نوع واترمارک ======
             $('input[name="' + optionName + '[watermark_type]"]').on('change', function() {
                 var type = $(this).val();
                 $('.wcts-wm-text-row').toggle( type === 'text' );
                 $('.wcts-wm-image-row').toggle( type === 'image' );
             });
 
-            // ====== انتخاب تصویر واترمارک ======
             var mediaFrame;
             $('#wcts-select-watermark-image').on('click', function(e) {
                 e.preventDefault();
@@ -746,12 +756,10 @@ class WCTS_Settings {
                 $('#wcts-watermark-preview').html('');
             });
 
-            // ====== پنل زمانبندی ======
             $('#wcts_enable_schedule').on('change', function() {
                 $('#wcts-schedule-panel').toggle( $(this).is(':checked') );
             });
 
-            // ====== تست اتصال ======
             $('#wcts-test-connection').on('click', function() {
                 var btn = $(this);
                 var resultBox = $('#wcts-test-result');
@@ -798,6 +806,7 @@ class WCTS_Settings {
             'enable_manual_button'        => '1',
             'variable_behavior'           => 'parent_only',
             'template'                    => self::default_template(),
+            'short_desc_line_emoji'       => '🔹',   // ⭐ پیشفرض
             'inline_buttons'              => [],
             'max_images'                  => 5,
             'image_size'                  => 'large',
@@ -829,9 +838,7 @@ class WCTS_Settings {
              . "📦 *موجودی:* {stock_status}\n"
              . "🏷️ *دسته:* {categories}\n"
              . "🔖 *کد:* {sku}\n"
-             . "⚖️ *وزن:* {weight}\n"
-             . "{attributes}"
-             . "{custom_fields}"
+             . "{short_description}\n"
              . "━━━━━━━━━━━━━━━━━━━\n"
              . "🔗 [مشاهده و خرید]({product_url})\n"
              . "🌐 {site_name}";
