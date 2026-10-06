@@ -1,0 +1,30 @@
+# WordPress
+wp-config.php
+wp-content/uploads/
+wp-content/cache/
+
+# Development
+node_modules/
+vendor/
+*.log
+*.tmp
+*.bak
+
+# IDE
+.idea/
+.vscode/
+*.sublime-project
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sensitive
+.env
+*.key
+*.pem
+
+# Build
+dist/
+build/
+*.zip
