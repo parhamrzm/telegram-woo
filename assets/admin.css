@@ -102,7 +102,58 @@
     color: #666;
 }
 
+/* ⭐ نتایج تست اتصال */
+.wcts-result-lines {
+    background: #f9f9f9;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-family: Tahoma, Arial, sans-serif;
+    font-size: 13px;
+    direction: rtl;
+    text-align: right;
+    max-width: 800px;
+}
+
+.wcts-result-summary {
+    font-size: 14px;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px dashed #ccc;
+    color: #1d2327;
+}
+
+.wcts-result-group {
+    padding: 8px 0;
+}
+
+.wcts-result-group + .wcts-result-group {
+    border-top: 1px dashed #e0e0e0;
+    margin-top: 6px;
+    padding-top: 10px;
+}
+
+.wcts-result-line {
+    padding: 4px 6px;
+    margin: 2px 0;
+    line-height: 1.6;
+    border-radius: 3px;
+    word-break: break-word;
+}
+
+.wcts-result-ok .wcts-result-line {
+    background: #ecf7ed;
+    color: #1a7a2e;
+    border-right: 3px solid #46b450;
+}
+
+.wcts-result-err .wcts-result-line {
+    background: #fcefef;
+    color: #a02121;
+    border-right: 3px solid #dc3232;
+}
+
 #wcts-test-result {
-    display: inline-block;
-    vertical-align: middle;
+    display: block;
+    margin-top: 10px;
 }

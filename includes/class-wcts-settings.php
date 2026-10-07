@@ -64,23 +64,20 @@ class WCTS_Settings {
         $defaults = self::get_defaults();
         $out = [];
 
-        // متنهای ساده
         $text_keys = [
             'bot_token', 'worker_url', 'image_size',
             'watermark_type', 'watermark_text', 'watermark_image_id',
             'watermark_position', 'watermark_color', 'variable_behavior',
-            'short_desc_line_emoji',   // ⭐ جدید
+            'short_desc_line_emoji',
         ];
         foreach ( $text_keys as $k ) {
             $out[ $k ] = isset( $input[ $k ] ) ? sanitize_text_field( $input[ $k ] ) : ( $defaults[ $k ] ?? '' );
         }
 
-        // قالب پیام
         $out['template'] = isset( $input['template'] )
             ? wp_kses_post( $input['template'] )
             : $defaults['template'];
 
-        // اعداد
         $int_keys = [
             'max_images', 'custom_width', 'custom_height',
             'watermark_opacity', 'watermark_font_size', 'watermark_margin',
@@ -90,28 +87,23 @@ class WCTS_Settings {
             $out[ $k ] = isset( $input[ $k ] ) ? intval( $input[ $k ] ) : ( $defaults[ $k ] ?? 0 );
         }
 
-        // چکباکسها
         $check_keys = [ 'send_on_new', 'send_on_update', 'enable_manual_button', 'watermark_enabled', 'enable_schedule' ];
         foreach ( $check_keys as $k ) {
             $out[ $k ] = ! empty( $input[ $k ] ) ? '1' : '0';
         }
 
-        // آرایه مقصدها
         $out['chat_ids'] = ! empty( $input['chat_ids'] ) && is_array( $input['chat_ids'] )
             ? array_values( array_filter( array_map( 'sanitize_text_field', $input['chat_ids'] ) ) )
             : [];
 
-        // ساعات زمانبندی
         $out['schedule_hours'] = ! empty( $input['schedule_hours'] ) && is_array( $input['schedule_hours'] )
             ? array_values( array_unique( array_map( 'intval', $input['schedule_hours'] ) ) )
             : [];
 
-        // پول محصولات زمانبندی
         $out['schedule_product_ids'] = ! empty( $input['schedule_product_ids'] ) && is_array( $input['schedule_product_ids'] )
             ? array_values( array_unique( array_map( 'intval', $input['schedule_product_ids'] ) ) )
             : [];
 
-        // ویژگیهای سفارشی
         $out['custom_fields'] = [];
         if ( ! empty( $input['custom_fields'] ) && is_array( $input['custom_fields'] ) ) {
             foreach ( $input['custom_fields'] as $f ) {
@@ -123,7 +115,6 @@ class WCTS_Settings {
             }
         }
 
-        // دکمههای اینلاین
         $out['inline_buttons'] = [];
         if ( ! empty( $input['inline_buttons'] ) && is_array( $input['inline_buttons'] ) ) {
             foreach ( $input['inline_buttons'] as $b ) {
@@ -138,7 +129,6 @@ class WCTS_Settings {
             }
         }
 
-        // حفظ ایندکس قبلی
         $old = get_option( self::$option_name, [] );
         $out['schedule_last_index'] = isset( $old['schedule_last_index'] ) ? intval( $old['schedule_last_index'] ) : 0;
 
@@ -156,6 +146,10 @@ class WCTS_Settings {
         }
     }
 
+    /**
+     * ⭐ AJAX تست اتصال
+     * حالا هر نتیجه رو جداگانه برمیگردونه تا در UI خطبهخط نمایش داده بشه
+     */
     public static function ajax_test_connection() {
         check_ajax_referer( 'wcts_test_nonce', 'nonce' );
 
@@ -186,32 +180,83 @@ class WCTS_Settings {
         }
 
         $api = new WCTS_Telegram_API();
-        $success = 0;
-        $errors = [];
+
+        // ⭐ آرایهی جداگانه برای نتایج موفق و ناموفق
+        $success_lines = [];
+        $error_lines   = [];
 
         foreach ( $chat_ids as $cid ) {
             $cid = trim( $cid );
             if ( $cid === '' ) continue;
+
             $res = $api->test_connection( $cid );
+
             if ( is_array( $res ) && ! empty( $res['ok'] ) ) {
-                $success++;
+                // ✅ موفق
+                $success_lines[] = sprintf(
+                    '✅ %s — ارسال موفق',
+                    esc_html( $cid )
+                );
             } else {
+                // ❌ ناموفق
                 $err_msg = 'خطای نامشخص';
                 if ( is_array( $res ) && ! empty( $res['description'] ) ) {
                     $err_msg = $res['description'];
                 } elseif ( is_wp_error( $res ) ) {
                     $err_msg = $res->get_error_message();
                 }
-                $errors[] = "❌ {$cid}: {$err_msg}";
+
+                $error_lines[] = sprintf(
+                    '❌ %s — %s',
+                    esc_html( $cid ),
+                    esc_html( $err_msg )
+                );
             }
         }
 
-        if ( $success > 0 ) {
-            $msg = sprintf( 'پیام تست با موفقیت به %d مقصد ارسال شد.', $success );
-            if ( ! empty( $errors ) ) $msg .= ' | ' . implode( ' | ', $errors );
-            wp_send_json_success( [ 'message' => $msg ] );
+        // ساخت HTML خطبهخط
+        $html = '<div class="wcts-result-lines">';
+
+        // خلاصه
+        $total = count( $success_lines ) + count( $error_lines );
+        $html .= '<div class="wcts-result-summary">';
+        $html .= sprintf(
+            'نتیجه: <strong>%d</strong> موفق از <strong>%d</strong> مقصد',
+            count( $success_lines ),
+            $total
+        );
+        $html .= '</div>';
+
+        // خطوط موفق
+        if ( ! empty( $success_lines ) ) {
+            $html .= '<div class="wcts-result-group wcts-result-ok">';
+            foreach ( $success_lines as $line ) {
+                $html .= '<div class="wcts-result-line">' . $line . '</div>';
+            }
+            $html .= '</div>';
+        }
+
+        // خطوط خطا
+        if ( ! empty( $error_lines ) ) {
+            $html .= '<div class="wcts-result-group wcts-result-err">';
+            foreach ( $error_lines as $line ) {
+                $html .= '<div class="wcts-result-line">' . $line . '</div>';
+            }
+            $html .= '</div>';
+        }
+
+        $html .= '</div>';
+
+        // ارسال پاسخ
+        if ( ! empty( $success_lines ) && empty( $error_lines ) ) {
+            // همه موفق
+            wp_send_json_success( [ 'html' => $html ] );
+        } elseif ( ! empty( $success_lines ) && ! empty( $error_lines ) ) {
+            // نیمه موفق — به عنوان warning برمیگردونیم ولی success=true
+            wp_send_json_success( [ 'html' => $html ] );
         } else {
-            wp_send_json_error( [ 'message' => 'ارسال ناموفق: ' . implode( ' | ', $errors ) ] );
+            // همه ناموفق
+            wp_send_json_error( [ 'html' => $html ] );
         }
     }
 
@@ -263,6 +308,14 @@ class WCTS_Settings {
                                     <?php endforeach; ?>
                                 </div>
                                 <button type="button" class="button" id="wcts-add-chat">+ افزودن مقصد</button>
+                                <p class="description" style="margin-top:8px;">
+                                    <strong>راهنمای Chat ID:</strong><br/>
+                                    • کانال عمومی: <code>-100</code> + شناسه عددی (مثلاً <code>-1002847069703</code>)<br/>
+                                    • گروه: <code>-</code> + شناسه عددی<br/>
+                                    • برای دریافت، ربات را <strong>ادمین</strong> کانال/گروه کنید،
+                                    سپس از <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a>
+                                    یا <a href="https://t.me/getidsbot" target="_blank">@getidsbot</a> استفاده کنید.
+                                </p>
                             </td>
                         </tr>
                         <tr>
@@ -271,7 +324,7 @@ class WCTS_Settings {
                                 <button type="button" class="button button-secondary" id="wcts-test-connection">
                                     ارسال پیام تست
                                 </button>
-                                <span id="wcts-test-result" style="margin-right:10px;font-weight:600;"></span>
+                                <div id="wcts-test-result" style="margin-top:10px;"></div>
                             </td>
                         </tr>
                     </table>
@@ -435,7 +488,6 @@ class WCTS_Settings {
                             </td>
                         </tr>
 
-                        <!-- ⭐ جدید: ایموجی هر خط توضیح کوتاه -->
                         <tr>
                             <th>ایموجی هر خط توضیحات کوتاه</th>
                             <td>
@@ -760,6 +812,7 @@ class WCTS_Settings {
                 $('#wcts-schedule-panel').toggle( $(this).is(':checked') );
             });
 
+            // ⭐ تست اتصال — نمایش خطبهخط
             $('#wcts-test-connection').on('click', function() {
                 var btn = $(this);
                 var resultBox = $('#wcts-test-result');
@@ -771,7 +824,7 @@ class WCTS_Settings {
                 });
 
                 btn.prop('disabled', true).text('در حال ارسال...');
-                resultBox.css('color', '#666').text('لطفاً صبر کنید...');
+                resultBox.html('<div style="color:#666;">لطفاً صبر کنید...</div>');
 
                 $.post(ajaxurl, {
                     action: 'wcts_test_connection',
@@ -781,14 +834,32 @@ class WCTS_Settings {
                     chat_ids: chatIds
                 }, function(response) {
                     btn.prop('disabled', false).text('ارسال پیام تست');
-                    if (response.success) {
-                        resultBox.css('color', 'green').text('✅ ' + response.data.message);
+
+                    var html = '';
+                    if (response && response.data && response.data.html) {
+                        html = response.data.html;
+                    } else if (response && response.data && response.data.message) {
+                        html = '<div>' + response.data.message + '</div>';
                     } else {
-                        resultBox.css('color', 'red').text('❌ ' + (response.data.message || 'خطا'));
+                        html = '<div style="color:#b32d2e;">پاسخ نامعتبر از سرور</div>';
                     }
+                    resultBox.html(html);
                 }).fail(function(xhr) {
                     btn.prop('disabled', false).text('ارسال پیام تست');
-                    resultBox.css('color', 'red').text('❌ خطا در ارتباط با سرور: ' + xhr.status);
+
+                    // حتی در خطا، اگر JSON برگشته باشه، HTML رو نشون بده
+                    var html = '';
+                    try {
+                        var resp = JSON.parse(xhr.responseText);
+                        if (resp && resp.data && resp.data.html) {
+                            html = resp.data.html;
+                        } else if (resp && resp.data && resp.data.message) {
+                            html = '<div style="color:#b32d2e;">' + resp.data.message + '</div>';
+                        }
+                    } catch (e) {
+                        html = '<div style="color:#b32d2e;">❌ خطا در ارتباط با سرور: ' + xhr.status + '</div>';
+                    }
+                    resultBox.html(html);
                 });
             });
         });
@@ -806,7 +877,7 @@ class WCTS_Settings {
             'enable_manual_button'        => '1',
             'variable_behavior'           => 'parent_only',
             'template'                    => self::default_template(),
-            'short_desc_line_emoji'       => '🔹',   // ⭐ پیشفرض
+            'short_desc_line_emoji'       => '🔹',
             'inline_buttons'              => [],
             'max_images'                  => 5,
             'image_size'                  => 'large',
