@@ -30,7 +30,7 @@
     font-weight: 600;
 }
 
-/* ============ Rows (Chat IDs, Custom Fields, Buttons) ============ */
+/* ============ Rows ============ */
 .wcts-chat-row,
 .wcts-field-row,
 .wcts-button-row {
@@ -41,39 +41,7 @@
     flex-wrap: wrap;
 }
 
-/* ============ Hours Grid (legacy — برای سازگاری نگه داشته شد) ============ */
-.wcts-hours-grid {
-    display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    gap: 6px;
-    margin: 10px 0;
-    max-width: 700px;
-}
-
-.wcts-hour-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    background: #f6f7f7;
-    padding: 6px 8px;
-    border-radius: 4px;
-    border: 1px solid #ddd;
-    cursor: pointer;
-    font-size: 13px;
-    transition: background .15s;
-}
-
-.wcts-hour-item:hover {
-    background: #eef5fb;
-    border-color: #a7c7e7;
-}
-
-.wcts-hour-item input:checked + span {
-    font-weight: 700;
-    color: #1d4ed8;
-}
-
-/* ============ Time Rows (ساعتهای داینامیک) ============ */
+/* ============ Time Rows ============ */
 .wcts-time-row {
     display: flex;
     align-items: center;
@@ -87,7 +55,301 @@
     min-width: 140px;
 }
 
-/* ============ Placeholders ============ */
+/* ============================================================
+   ⭐ Editor Toolbar
+   ============================================================ */
+.wcts-editor-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    background: #f6f7f7;
+    border: 1px solid #ccd0d4;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    padding: 6px 8px;
+    align-items: center;
+}
+
+.wcts-tbtn {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s;
+    line-height: 1.2;
+    color: #1d2327;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 30px;
+}
+
+.wcts-tbtn:hover {
+    background: #eef5fb;
+    border-color: #a7c7e7;
+    color: #1d4ed8;
+}
+
+.wcts-tbtn:active {
+    transform: translateY(1px);
+}
+
+.wcts-tbtn b { font-size: 14px; }
+.wcts-tbtn i { font-size: 14px; }
+.wcts-tbtn code {
+    font-size: 12px;
+    background: none;
+    padding: 0;
+    color: inherit;
+}
+
+.wcts-tbtn-accent {
+    background: #f0f6fc;
+    border-color: #a7c7e7;
+    color: #1d4ed8;
+}
+
+.wcts-tbtn-accent:hover {
+    background: #dbeafe;
+}
+
+.wcts-tb-sep {
+    display: inline-block;
+    width: 1px;
+    height: 20px;
+    background: #ccd0d4;
+    margin: 0 4px;
+}
+
+.wcts-template-area {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    font-family: Tahoma, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.7;
+    padding: 12px;
+    margin-top: 0 !important;
+}
+
+/* ============================================================
+   ⭐ Emoji Picker
+   ============================================================ */
+.wcts-emoji-panel {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 6px;
+    box-shadow: 0 3px 12px rgba(0,0,0,.1);
+    margin-top: 6px;
+    overflow: hidden;
+}
+
+.wcts-emoji-header,
+.wcts-help-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid #eee;
+    background: #f9f9f9;
+}
+
+.wcts-emoji-close {
+    background: transparent;
+    border: none;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    color: #666;
+    padding: 0 4px;
+}
+
+.wcts-emoji-close:hover { color: #dc3232; }
+
+.wcts-emoji-body {
+    display: flex;
+    max-height: 320px;
+}
+
+.wcts-emoji-cats {
+    width: 150px;
+    border-left: 1px solid #eee;
+    background: #fafafa;
+    overflow-y: auto;
+    padding: 6px 0;
+}
+
+.wcts-emoji-cat {
+    display: block;
+    width: 100%;
+    text-align: right;
+    background: transparent;
+    border: none;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    color: #1d2327;
+    transition: background .15s;
+    border-right: 3px solid transparent;
+}
+
+.wcts-emoji-cat:hover {
+    background: #f0f6fc;
+}
+
+.wcts-emoji-cat.active {
+    background: #eef5fb;
+    color: #1d4ed8;
+    font-weight: 600;
+    border-right-color: #1d4ed8;
+}
+
+.wcts-emoji-grid {
+    flex: 1;
+    padding: 10px;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 4px;
+    overflow-y: auto;
+    max-height: 300px;
+}
+
+.wcts-emoji-item {
+    background: #f6f7f7;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 6px 0;
+    font-size: 20px;
+    cursor: pointer;
+    transition: all .12s;
+    line-height: 1;
+}
+
+.wcts-emoji-item:hover {
+    background: #dbeafe;
+    border-color: #a7c7e7;
+    transform: scale(1.15);
+}
+
+/* ============================================================
+   ⭐ Help Panel
+   ============================================================ */
+.wcts-help-panel {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 6px;
+    box-shadow: 0 3px 12px rgba(0,0,0,.1);
+    margin-top: 6px;
+    overflow: hidden;
+}
+
+.wcts-help-body {
+    padding: 12px 16px;
+}
+
+.wcts-help-body table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.wcts-help-body table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+}
+
+.wcts-help-body table td:first-child {
+    width: 160px;
+}
+
+.wcts-help-body table td:nth-child(2) {
+    width: 120px;
+}
+
+.wcts-help-body code {
+    background: #f0f6fc;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #1d4ed8;
+}
+
+/* ============================================================
+   ⭐ Live Preview
+   ============================================================ */
+.wcts-preview-wrapper {
+    margin-top: 8px;
+    background: #f9f9f9;
+    border: 1px solid #ccd0d4;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.wcts-preview-header {
+    background: #f0f6fc;
+    padding: 8px 14px;
+    border-bottom: 1px solid #dbeafe;
+    font-size: 13px;
+    color: #1d4ed8;
+}
+
+.wcts-preview-box {
+    padding: 16px;
+    background: #fff;
+    font-family: Tahoma, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.9;
+    direction: rtl;
+    text-align: right;
+    color: #1d2327;
+    min-height: 80px;
+    max-height: 400px;
+    overflow-y: auto;
+    border-radius: 0;
+}
+
+.wcts-preview-box b,
+.wcts-preview-box strong {
+    font-weight: 700;
+    color: #1d2327;
+}
+
+.wcts-preview-box i,
+.wcts-preview-box em {
+    font-style: italic;
+    color: #1d2327;
+}
+
+.wcts-preview-box a {
+    color: #1d4ed8;
+    text-decoration: underline;
+}
+
+.wcts-preview-box code {
+    background: #f0f0f0;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: Consolas, Monaco, monospace;
+    font-size: 13px;
+    direction: ltr;
+    display: inline-block;
+}
+
+.wcts-preview-box pre {
+    background: #f0f0f0;
+    padding: 10px;
+    border-radius: 4px;
+    direction: ltr;
+    text-align: left;
+    overflow-x: auto;
+    font-family: Consolas, Monaco, monospace;
+    font-size: 13px;
+}
+
+/* ============================================================
+   Placeholders
+   ============================================================ */
 .wcts-placeholders {
     display: flex;
     flex-wrap: wrap;
@@ -110,6 +372,7 @@
 
 .wcts-ph:hover {
     background: #dbeafe;
+    border-color: #a7c7e7;
 }
 
 .wcts-ph code {
@@ -147,9 +410,7 @@
     color: #1d2327;
 }
 
-.wcts-result-group {
-    padding: 8px 0;
-}
+.wcts-result-group { padding: 8px 0; }
 
 .wcts-result-group + .wcts-result-group {
     border-top: 1px dashed #e0e0e0;
@@ -183,7 +444,7 @@
 }
 
 /* ============================================================
-   Queue Stats (آمار بالای صفحه صف)
+   Queue Stats
    ============================================================ */
 .wcts-queue-stats {
     display: flex;
@@ -207,15 +468,8 @@
     box-shadow: 0 3px 8px rgba(0,0,0,.08);
 }
 
-.wcts-stat-box.wcts-stat-ok {
-    border-color: #46b450;
-    background: #f7fdf7;
-}
-
-.wcts-stat-box.wcts-stat-err {
-    border-color: #dc3232;
-    background: #fdf7f7;
-}
+.wcts-stat-box.wcts-stat-ok { border-color: #46b450; background: #f7fdf7; }
+.wcts-stat-box.wcts-stat-err { border-color: #dc3232; background: #fdf7f7; }
 
 .wcts-stat-num {
     display: block;
@@ -243,9 +497,7 @@
     flex-wrap: wrap;
 }
 
-.wcts-queue-filters .wcts-spacer {
-    flex: 1;
-}
+.wcts-queue-filters .wcts-spacer { flex: 1; }
 
 /* ============================================================
    Queue Table
@@ -261,9 +513,7 @@
     background: #f6f7f7;
 }
 
-.wcts-queue-table td {
-    vertical-align: middle;
-}
+.wcts-queue-table td { vertical-align: middle; }
 
 /* ============================================================
    Status Badges
@@ -277,32 +527,15 @@
     white-space: nowrap;
 }
 
-.wcts-badge-pending {
-    background: #fff4e5;
-    color: #ad5700;
-}
-
-.wcts-badge-processing {
-    background: #e5f0ff;
-    color: #1d4ed8;
-}
-
-.wcts-badge-sent {
-    background: #ecf7ed;
-    color: #1a7a2e;
-}
-
-.wcts-badge-failed {
-    background: #fcefef;
-    color: #a02121;
-}
+.wcts-badge-pending    { background: #fff4e5; color: #ad5700; }
+.wcts-badge-processing { background: #e5f0ff; color: #1d4ed8; }
+.wcts-badge-sent       { background: #ecf7ed; color: #1a7a2e; }
+.wcts-badge-failed     { background: #fcefef; color: #a02121; }
 
 /* ============================================================
-   Add Form (در صفحه صف)
+   Add Form (Queue Page)
    ============================================================ */
-.wcts-add-form .form-table th {
-    width: 160px;
-}
+.wcts-add-form .form-table th { width: 160px; }
 
 .wcts-add-form input[type="date"],
 .wcts-add-form input[type="time"] {
@@ -319,59 +552,61 @@
         gap: 10px;
     }
 
-    .wcts-stat-box {
-        padding: 14px;
-    }
+    .wcts-stat-box { padding: 14px; }
+    .wcts-stat-num { font-size: 24px; }
 
-    .wcts-stat-num {
-        font-size: 24px;
-    }
-
-    .wcts-wrap .form-table th {
-        width: auto;
-    }
-
-    .wcts-hours-grid {
-        grid-template-columns: repeat(4, 1fr);
-    }
+    .wcts-wrap .form-table th { width: auto; }
 
     .wcts-queue-filters {
         flex-direction: column;
         align-items: stretch;
     }
 
-    .wcts-queue-filters .wcts-spacer {
-        display: none;
+    .wcts-queue-filters .wcts-spacer { display: none; }
+
+    .wcts-emoji-body { flex-direction: column; }
+    .wcts-emoji-cats {
+        width: 100%;
+        border-left: none;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+    .wcts-emoji-cat {
+        width: auto;
+        border-right: none;
+        border-bottom: 3px solid transparent;
+    }
+    .wcts-emoji-cat.active {
+        border-right-color: transparent;
+        border-bottom-color: #1d4ed8;
+    }
+    .wcts-emoji-grid {
+        grid-template-columns: repeat(6, 1fr);
+    }
+
+    .wcts-editor-toolbar {
+        gap: 2px;
+    }
+    .wcts-tbtn {
+        padding: 4px 6px;
+        font-size: 12px;
     }
 }
 
 /* ============================================================
-   Notice adjustments
+   Misc
    ============================================================ */
-.wcts-wrap .notice {
-    margin: 15px 0;
-}
+.wcts-wrap .notice { margin: 15px 0; }
 
-/* ============================================================
-   WP List Table tweaks (برای صفحه صف)
-   ============================================================ */
-.wcts-wrap .wp-list-table .column-id {
-    width: 60px;
-}
-
+.wcts-wrap .wp-list-table .column-id { width: 60px; }
 .wcts-wrap .wp-list-table a.button-small {
     margin-left: 4px;
     margin-bottom: 4px;
 }
 
-/* ============================================================
-   Date/Time Inputs
-   ============================================================ */
-input.wcts-time-input::-webkit-calendar-picker-indicator {
-    cursor: pointer;
-}
-
 input[type="date"],
-input[type="time"] {
-    direction: ltr;
-}
+input[type="time"] { direction: ltr; }
+
+input.wcts-time-input::-webkit-calendar-picker-indicator { cursor: pointer; }

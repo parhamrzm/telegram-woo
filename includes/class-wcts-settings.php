@@ -74,6 +74,7 @@ class WCTS_Settings {
             $out[ $k ] = isset( $input[ $k ] ) ? sanitize_text_field( $input[ $k ] ) : ( $defaults[ $k ] ?? '' );
         }
 
+        // ⚠️ قالب باید Markdown رو حفظ کنه، پس wp_kses_post کافیه
         $out['template'] = isset( $input['template'] )
             ? wp_kses_post( $input['template'] ) : $defaults['template'];
 
@@ -103,7 +104,6 @@ class WCTS_Settings {
             ? array_values( array_filter( array_map( 'sanitize_text_field', $input['chat_ids'] ) ) )
             : [];
 
-        // زمانهای زمانبندی (HH:MM)
         $out['schedule_times'] = [];
         if ( ! empty( $input['schedule_times'] ) && is_array( $input['schedule_times'] ) ) {
             foreach ( $input['schedule_times'] as $t ) {
@@ -286,7 +286,7 @@ class WCTS_Settings {
                 </div>
 
                 <!-- ============================================================
-                     بخش ۲: زمان ارسال (فوری)
+                     بخش ۲: ارسال فوری
                      ============================================================ -->
                 <div class="wcts-section">
                     <h2>⏰ ارسال فوری</h2>
@@ -332,8 +332,7 @@ class WCTS_Settings {
                 </div>
 
                 <!-- ============================================================
-                     بخش ۳: زمانبندی خودکار (افزودن خودکار به صف)
-                     ⭐ این بخش حالا قبل از صف قرار دارد
+                     بخش ۳: زمانبندی خودکار
                      ============================================================ -->
                 <div class="wcts-section">
                     <h2>⏱️ زمانبندی خودکار (افزودن خودکار به صف)</h2>
@@ -362,7 +361,6 @@ class WCTS_Settings {
                                         هر تعداد ساعت خواستی اضافه کن. وقتی کرون اجرا شد، اگر ساعتی از این لیست
                                         در بازهی اخیر گذشته باشد، محصولات به صف اضافه میشوند.
                                     </p>
-
                                     <div id="wcts-times-wrapper">
                                         <?php
                                         $times = ! empty( $opts['schedule_times'] ) ? $opts['schedule_times'] : [];
@@ -376,7 +374,6 @@ class WCTS_Settings {
                                             </div>
                                         <?php endforeach; ?>
                                     </div>
-
                                     <button type="button" class="button button-primary" id="wcts-add-time">
                                         ➕ افزودن ساعت
                                     </button>
@@ -422,7 +419,6 @@ class WCTS_Settings {
 
                 <!-- ============================================================
                      بخش ۴: صف ارسال و کرون
-                     ⭐ این بخش حالا بعد از زمانبندی خودکار قرار دارد
                      ============================================================ -->
                 <div class="wcts-section">
                     <h2>📬 صف ارسال و کرون</h2>
@@ -478,18 +474,127 @@ class WCTS_Settings {
                 </div>
 
                 <!-- ============================================================
-                     بخش ۵: قالب پیام
+                     بخش ۵: قالب پیام (با ادیتور جدید)
                      ============================================================ -->
                 <div class="wcts-section">
                     <h2>📝 قالب پیام</h2>
+
                     <table class="form-table">
                         <tr>
                             <th>متن قالب</th>
                             <td>
+                                <!-- ⭐ نوار ابزار ادیتور -->
+                                <div class="wcts-editor-toolbar">
+                                    <button type="button" class="wcts-tbtn" data-action="bold" title="بولد (Ctrl+B)">
+                                        <b>B</b>
+                                    </button>
+                                    <button type="button" class="wcts-tbtn" data-action="italic" title="ایتالیک (Ctrl+I)">
+                                        <i>I</i>
+                                    </button>
+                                    <button type="button" class="wcts-tbtn" data-action="code" title="کد">
+                                        <code>&lt;/&gt;</code>
+                                    </button>
+                                    <button type="button" class="wcts-tbtn" data-action="pre" title="بلوک کد">
+                                        <code>{ }</code>
+                                    </button>
+                                    <button type="button" class="wcts-tbtn" data-action="link" title="افزودن لینک">
+                                        🔗 لینک
+                                    </button>
+                                    <button type="button" class="wcts-tbtn wcts-tbtn-accent" data-action="product-link" title="لینک محصول">
+                                        🛍️ لینک محصول
+                                    </button>
+
+                                    <span class="wcts-tb-sep"></span>
+
+                                    <button type="button" class="wcts-tbtn" id="wcts-emoji-toggle" title="افزودن ایموجی">
+                                        😊 ایموجی
+                                    </button>
+
+                                    <button type="button" class="wcts-tbtn" id="wcts-help-toggle" title="راهنما">
+                                        ❓ راهنما
+                                    </button>
+
+                                    <span class="wcts-tb-sep"></span>
+
+                                    <button type="button" class="wcts-tbtn" id="wcts-preview-toggle" title="پیشنمایش">
+                                        👁️ پیشنمایش
+                                    </button>
+                                </div>
+
+                                <!-- ⭐ پنل ایموجی -->
+                                <div class="wcts-emoji-panel" id="wcts-emoji-panel" style="display:none;">
+                                    <div class="wcts-emoji-header">
+                                        <strong>انتخاب ایموجی</strong>
+                                        <button type="button" class="wcts-emoji-close" id="wcts-emoji-close">×</button>
+                                    </div>
+                                    <div class="wcts-emoji-body">
+                                        <div class="wcts-emoji-cats" id="wcts-emoji-cats"></div>
+                                        <div class="wcts-emoji-grid" id="wcts-emoji-grid"></div>
+                                    </div>
+                                </div>
+
+                                <!-- ⭐ پنل راهنما -->
+                                <div class="wcts-help-panel" id="wcts-help-panel" style="display:none;">
+                                    <div class="wcts-help-header">
+                                        <strong>راهنمای قالببندی</strong>
+                                        <button type="button" class="wcts-emoji-close" id="wcts-help-close">×</button>
+                                    </div>
+                                    <div class="wcts-help-body">
+                                        <table>
+                                            <tr>
+                                                <td><code>*متن*</code></td>
+                                                <td><b>متن</b></td>
+                                                <td>بولد</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>_متن_</code></td>
+                                                <td><i>متن</i></td>
+                                                <td>ایتالیک</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>`متن`</code></td>
+                                                <td><code>متن</code></td>
+                                                <td>کد درونخطی</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>```متن```</code></td>
+                                                <td><code>متن</code></td>
+                                                <td>بلوک کد</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>[متن](url)</code></td>
+                                                <td><a href="#" onclick="return false;">متن</a></td>
+                                                <td>لینک</td>
+                                            </tr>
+                                        </table>
+                                        <p class="description" style="margin-top:10px;">
+                                            <strong>💡 نکته:</strong> برای لینک کردن اسم محصول،
+                                            عبارت <code>{product_name}</code> را انتخاب کن و روی
+                                            <strong>🛍️ لینک محصول</strong> بزن — به صورت خودکار
+                                            <code>[{product_name}]({product_url})</code> میشود.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <!-- textarea -->
                                 <textarea id="wcts_template"
                                           name="<?php echo self::$option_name; ?>[template]"
-                                          rows="18" class="large-text" dir="rtl"><?php echo esc_textarea( $opts['template'] ); ?></textarea>
-                                <p class="description">روی هر placeholder کلیک کنید تا به محل مکاننما اضافه شود.</p>
+                                          rows="18" class="large-text wcts-template-area" dir="rtl"><?php echo esc_textarea( $opts['template'] ); ?></textarea>
+
+                                <!-- ⭐ پیشنمایش -->
+                                <div id="wcts-preview-wrapper" class="wcts-preview-wrapper" style="display:none;">
+                                    <div class="wcts-preview-header">
+                                        <strong>👁️ پیشنمایش پیام تلگرام</strong>
+                                    </div>
+                                    <div id="wcts-preview-box" class="wcts-preview-box"></div>
+                                </div>
+
+                                <p class="description" style="margin-top:10px;">
+                                    از دکمههای بالای کادر برای قالببندی استفاده کن. متن انتخابشده با کلیک روی
+                                    دکمهها، خودکار قالببندی میشود.
+                                </p>
+
+                                <!-- placeholder ها -->
                                 <div class="wcts-placeholders">
                                     <?php
                                     $placeholders = [
@@ -693,7 +798,197 @@ class WCTS_Settings {
             var optionName = '<?php echo self::$option_name; ?>';
             var testNonce = '<?php echo wp_create_nonce( "wcts_test_nonce" ); ?>';
 
-            // مقصدها
+            /* ============================================================
+               ادیتور قالب پیام
+               ============================================================ */
+            var $textarea = $('#wcts_template');
+
+            // ذخیره اسکرول و فوکوس textarea
+            function getEditor() { return $textarea[0]; }
+
+            // درج متن در محل مکاننما یا دور انتخاب
+            function insertAround(before, after, placeholder) {
+                var ta = getEditor();
+                var start = ta.selectionStart;
+                var end = ta.selectionEnd;
+                var text = ta.value;
+                var selected = text.substring(start, end);
+                if (selected === '') selected = placeholder || '';
+
+                var newText = text.substring(0, start) + before + selected + after + text.substring(end);
+                ta.value = newText;
+                ta.selectionStart = start + before.length;
+                ta.selectionEnd = start + before.length + selected.length;
+                ta.focus();
+                updatePreview();
+            }
+
+            // درج متن ساده (ایموجی)
+            function insertAtCursor(str) {
+                var ta = getEditor();
+                var start = ta.selectionStart;
+                var end = ta.selectionEnd;
+                var text = ta.value;
+                ta.value = text.substring(0, start) + str + text.substring(end);
+                ta.selectionStart = ta.selectionEnd = start + str.length;
+                ta.focus();
+                updatePreview();
+            }
+
+            // دکمههای نوار ابزار
+            $(document).on('click', '.wcts-tbtn[data-action]', function(e) {
+                e.preventDefault();
+                var action = $(this).data('action');
+
+                switch (action) {
+                    case 'bold':
+                        insertAround('*', '*', 'متن بولد');
+                        break;
+                    case 'italic':
+                        insertAround('_', '_', 'متن ایتالیک');
+                        break;
+                    case 'code':
+                        insertAround('`', '`', 'کد');
+                        break;
+                    case 'pre':
+                        insertAround('```', '```', 'بلوک کد');
+                        break;
+                    case 'link':
+                        var url = prompt('آدرس لینک را وارد کن:\n(می\u200cتونی از placeholder استفاده کنی، مثلاً {product_url})', '{product_url}');
+                        if (!url) return;
+                        insertAround('[', '](' + url + ')', 'متن لینک');
+                        break;
+                    case 'product-link':
+                        // انتخاب فعلی را به لینک محصول تبدیل میکنه
+                        var ta = getEditor();
+                        var start = ta.selectionStart;
+                        var end = ta.selectionEnd;
+                        var selected = ta.value.substring(start, end);
+                        if (selected === '') selected = '{product_name}';
+                        insertAround('[', ']({product_url})', selected);
+                        break;
+                }
+            });
+
+            /* ============================================================
+               پنل ایموجی
+               ============================================================ */
+            var emojiData = {
+                'پرکاربرد': ['🔥','✨','⭐','💫','💥','🎉','🎁','🎯','💯','👍','❤️','🙌','😍','🥰','😎','🤩'],
+                'محصولات و خرید': ['🛍️','🛒','📦','🏷️','💰','💵','💳','💎','👕','👟','💄','📱','⌚','👜','👗','🧴'],
+                'تخفیف و فروش': ['🏷️','💸','🎊','🎈','🎀','🔥','⚡','🚀','⏰','⏳','📢','📣','🔔','💥','🎯','🆕'],
+                'عکس و رسانه': ['📷','📸','🖼️','🎬','🎥','🎨','🎵','🎶','▶️','📺','🎞️','🎤'],
+                'پیکان و لینک': ['➡️','⬅️','⬆️','⬇️','↗️','↙️','↘️','↖️','🔗','📎','📍','🔍','🔎'],
+                'علامت و وضعیت': ['✅','❌','⭕','❗','❓','⚠️','ℹ️','🔴','🟢','🟡','🔵','⛔','🚫','✔️','✖️','💤'],
+                'جوایز و افتخار': ['🏆','🥇','🥈','🥉','👑','🎖️','🏅','⭐','🌟','💫','✨'],
+                'طبیعت': ['🌹','🌸','🌺','🌻','🌼','🍀','🌿','🍃','🌱','🌟','☀️','🌙','⭐','⚡','💧','❄️','🌈','🔥'],
+                'غذا و نوشیدنی': ['☕','🍵','🥤','🍰','🍩','🍕','🍔','🍟','🍎','🍇','🍓','🍒','🥂','🍷'],
+                'احساسات': ['😊','😂','🤣','😍','🥰','😎','🤔','😮','😢','😡','😴','🤗','🙄','😇','🥳']
+            };
+
+            // ساخت پنل ایموجی
+            var $emojiCats = $('#wcts-emoji-cats');
+            var $emojiGrid = $('#wcts-emoji-grid');
+            var firstCat = Object.keys(emojiData)[0];
+
+            Object.keys(emojiData).forEach(function(cat, idx) {
+                var $btn = $('<button type="button" class="wcts-emoji-cat">' + cat + '</button>');
+                $btn.data('cat', cat);
+                if (idx === 0) $btn.addClass('active');
+                $emojiCats.append($btn);
+            });
+
+            function renderEmojiGrid(cat) {
+                $emojiGrid.empty();
+                (emojiData[cat] || []).forEach(function(em) {
+                    var $e = $('<button type="button" class="wcts-emoji-item"></button>').text(em);
+                    $emojiGrid.append($e);
+                });
+            }
+            renderEmojiGrid(firstCat);
+
+            $emojiCats.on('click', '.wcts-emoji-cat', function() {
+                $emojiCats.find('.wcts-emoji-cat').removeClass('active');
+                $(this).addClass('active');
+                renderEmojiGrid($(this).data('cat'));
+            });
+
+            $emojiGrid.on('click', '.wcts-emoji-item', function() {
+                insertAtCursor($(this).text());
+            });
+
+            $('#wcts-emoji-toggle').on('click', function(e) {
+                e.preventDefault();
+                $('#wcts-help-panel').hide();
+                $('#wcts-emoji-panel').slideToggle(150);
+            });
+            $('#wcts-emoji-close').on('click', function() {
+                $('#wcts-emoji-panel').slideUp(150);
+            });
+
+            /* ============================================================
+               پنل راهنما
+               ============================================================ */
+            $('#wcts-help-toggle').on('click', function(e) {
+                e.preventDefault();
+                $('#wcts-emoji-panel').hide();
+                $('#wcts-help-panel').slideToggle(150);
+            });
+            $('#wcts-help-close').on('click', function() {
+                $('#wcts-help-panel').slideUp(150);
+            });
+
+            /* ============================================================
+               پیشنمایش
+               ============================================================ */
+            function renderPreview(text) {
+                // escape HTML
+                text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+                // بلوک کد
+                text = text.replace(/```([\s\S]+?)```/g, '<pre>$1</pre>');
+                // کد درونخطی
+                text = text.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+                // لینک
+                text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+                // بولد
+                text = text.replace(/\*([^*\n]+)\*/g, '<b>$1</b>');
+                // ایتالیک
+                text = text.replace(/_([^_\n]+)_/g, '<i>$1</i>');
+                // خط جدید
+                text = text.replace(/\n/g, '<br>');
+
+                return text;
+            }
+
+            function updatePreview() {
+                if ($('#wcts-preview-wrapper').is(':visible')) {
+                    var html = renderPreview($textarea.val());
+                    $('#wcts-preview-box').html(html);
+                }
+            }
+
+            $textarea.on('input keyup paste', function() {
+                updatePreview();
+            });
+
+            $('#wcts-preview-toggle').on('click', function(e) {
+                e.preventDefault();
+                $('#wcts-preview-wrapper').slideToggle(150, function() {
+                    updatePreview();
+                });
+            });
+
+            /* ============================================================
+               placeholder ها (بهبود: در محل مکاننما)
+               ============================================================ */
+            $('.wcts-ph').on('click', function() {
+                insertAtCursor($(this).data('ph'));
+            });
+
+            /* ============================================================
+               بقیه تنظیمات (مقصدها، ساعت، ویژگی، دکمه، واترمارک)
+               ============================================================ */
             $('#wcts-add-chat').on('click', function() {
                 $('#wcts-chat-ids-wrapper').append(
                     '<div class="wcts-chat-row">' +
@@ -706,7 +1001,6 @@ class WCTS_Settings {
                 $(this).closest('.wcts-chat-row').remove();
             });
 
-            // ساعتها — افزودن/حذف داینامیک
             $('#wcts-add-time').on('click', function() {
                 $('#wcts-times-wrapper').append(
                     '<div class="wcts-time-row">' +
@@ -718,7 +1012,6 @@ class WCTS_Settings {
                 $(this).closest('.wcts-time-row').remove();
             });
 
-            // ویژگی سفارشی
             $('#wcts-add-field').on('click', function() {
                 var idx = $('#wcts-custom-fields-wrapper .wcts-field-row').length;
                 $('#wcts-custom-fields-wrapper').append(
@@ -734,7 +1027,6 @@ class WCTS_Settings {
                 $(this).closest('.wcts-field-row').remove();
             });
 
-            // دکمه اینلاین
             $('#wcts-add-button').on('click', function() {
                 var idx = $('#wcts-buttons-wrapper .wcts-button-row').length;
                 $('#wcts-buttons-wrapper').append(
@@ -748,17 +1040,6 @@ class WCTS_Settings {
             });
             $(document).on('click', '.wcts-remove-button', function() {
                 $(this).closest('.wcts-button-row').remove();
-            });
-
-            // placeholder
-            $('.wcts-ph').on('click', function() {
-                var ph = $(this).data('ph');
-                var ta = $('#wcts_template');
-                var start = ta[0].selectionStart, end = ta[0].selectionEnd;
-                var text = ta.val();
-                ta.val( text.substring(0, start) + ph + text.substring(end) );
-                ta[0].selectionStart = ta[0].selectionEnd = start + ph.length;
-                ta.focus();
             });
 
             $('#wcts_image_size').on('change', function() {
@@ -796,7 +1077,6 @@ class WCTS_Settings {
                 $('#wcts-schedule-panel').toggle( $(this).is(':checked') );
             });
 
-            // تست اتصال
             $('#wcts-test-connection').on('click', function() {
                 var btn = $(this), resultBox = $('#wcts-test-result');
                 var chatIds = [];
