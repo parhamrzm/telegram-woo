@@ -4,11 +4,19 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 class WCTS_Hooks {
 
     public static function init() {
+        // ارسال خودکار
         add_action( 'woocommerce_new_product', [ __CLASS__, 'on_product_created' ], 10, 2 );
         add_action( 'woocommerce_update_product', [ __CLASS__, 'on_product_updated' ], 10, 2 );
-        add_action( 'wcts_hourly_event', [ __CLASS__, 'run_scheduled_send' ] );
+
+        // Bulk action
+        add_filter( 'bulk_actions-edit-product', [ __CLASS__, 'register_bulk_actions' ] );
+        add_filter( 'handle_bulk_actions-edit-product', [ __CLASS__, 'handle_bulk_action' ], 10, 3 );
+        add_action( 'admin_notices', [ __CLASS__, 'bulk_action_notice' ] );
     }
 
+    /* ============================================================
+       ارسال خودکار
+       ============================================================ */
     public static function on_product_created( $product_id, $product ) {
         $settings = WCTS_Settings::get();
         if ( empty( $settings['send_on_new'] ) || $settings['send_on_new'] !== '1' ) return;
@@ -23,46 +31,56 @@ class WCTS_Hooks {
         self::process_send( $product_id );
     }
 
-    /**
-     * کرون ساعتی: ارسال زمانبندی شده
-     */
-    public static function run_scheduled_send() {
+    /* ============================================================
+       Bulk Action — افزودن به صف تلگرام
+       ============================================================ */
+    public static function register_bulk_actions( $actions ) {
         $settings = WCTS_Settings::get();
-        if ( empty( $settings['enable_schedule'] ) || $settings['enable_schedule'] !== '1' ) {
-            return;
+        if ( empty( $settings['enable_bulk_action'] ) || $settings['enable_bulk_action'] !== '1' ) {
+            return $actions;
         }
-
-        $current_hour = intval( current_time( 'G' ) );
-        $selected_hours = ! empty( $settings['schedule_hours'] ) ? $settings['schedule_hours'] : [];
-
-        // اگر ساعتی انتخاب شده باشد، فقط در آن ساعتها اجرا میشود
-        if ( ! empty( $selected_hours ) && ! in_array( $current_hour, $selected_hours, true ) ) {
-            return;
-        }
-
-        $count = intval( $settings['schedule_products_per_hour'] ?? 3 );
-        if ( $count < 1 ) $count = 1;
-
-        $product_ids = self::get_scheduled_products( $count, $settings );
-        if ( empty( $product_ids ) ) return;
-
-        foreach ( $product_ids as $pid ) {
-            self::process_send( $pid );
-            usleep( 800000 ); // 0.8 ثانیه بین ارسالها
-        }
+        $actions['wcts_add_to_queue'] = '📬 افزودن به صف تلگرام';
+        return $actions;
     }
 
-    /**
-     * انتخاب محصولات برای ارسال زمانبندی
-     *  - اگر pool خالی است → رندوم از کل فروشگاه
-     *  - اگر pool پر است → ترتیبی از pool
-     */
-    private static function get_scheduled_products( $count, $settings ) {
+    public static function handle_bulk_action( $redirect_to, $action, $post_ids ) {
+        if ( $action !== 'wcts_add_to_queue' ) return $redirect_to;
+
+        $count = 0;
+        foreach ( $post_ids as $pid ) {
+            $product = wc_get_product( $pid );
+            if ( ! $product ) continue;
+            if ( $product->get_status() !== 'publish' ) continue;
+
+            WCTS_Queue::add( $pid );
+            $count++;
+        }
+
+        return add_query_arg( 'wcts_bulk_added', $count, $redirect_to );
+    }
+
+    public static function bulk_action_notice() {
+        if ( empty( $_REQUEST['wcts_bulk_added'] ) ) return;
+        $count = intval( $_REQUEST['wcts_bulk_added'] );
+        if ( $count < 1 ) return;
+
+        printf(
+            '<div class="notice notice-success is-dismissible"><p>📬 %s محصول به صف تلگرام اضافه شد. <a href="%s">مشاهده صف</a></p></div>',
+            number_format_i18n( $count ),
+            esc_url( admin_url( 'admin.php?page=wcts-queue' ) )
+        );
+    }
+
+    /* ============================================================
+       انتخاب محصولات برای زمانبندی خودکار
+       ============================================================ */
+    public static function pick_scheduled_products( $count ) {
+        $settings = WCTS_Settings::get();
         $pool = ! empty( $settings['schedule_product_ids'] )
             ? array_filter( array_map( 'intval', $settings['schedule_product_ids'] ) )
             : [];
 
-        // حالت ۱: کاربر محصولی انتخاب نکرده → رندوم از همه
+        // حالت ۱: pool خالی → رندوم
         if ( empty( $pool ) ) {
             return get_posts( [
                 'post_type'      => 'product',
@@ -74,17 +92,13 @@ class WCTS_Hooks {
             ] );
         }
 
-        // حالت ۲: pool پر است → ترتیبی
-        // فیلتر محصولاتی که واقعاً منتشر شدهاند
+        // حالت ۲: pool پر → ترتیبی
         $valid_pool = [];
         foreach ( $pool as $pid ) {
             $p = wc_get_product( $pid );
-            if ( $p && $p->get_status() === 'publish' ) {
-                $valid_pool[] = $pid;
-            }
+            if ( $p && $p->get_status() === 'publish' ) $valid_pool[] = $pid;
         }
 
-        // اگر هیچکدام از محصولات pool معتبر نبود → رندوم fallback
         if ( empty( $valid_pool ) ) {
             return get_posts( [
                 'post_type'      => 'product',
@@ -105,15 +119,14 @@ class WCTS_Hooks {
             $idx = ( $last_index + $i ) % $total;
             $selected[] = $valid_pool[ $idx ];
         }
-
         WCTS_Settings::update( 'schedule_last_index', ( $last_index + $count ) % $total );
 
         return $selected;
     }
 
-    /**
-     * پردازش ارسال یک محصول
-     */
+    /* ============================================================
+       پردازش ارسال یک محصول (هسته)
+       ============================================================ */
     public static function process_send( $product_id, $chat_ids_override = null ) {
         $settings = WCTS_Settings::get();
 
@@ -124,18 +137,13 @@ class WCTS_Hooks {
             $chat_ids = array_filter( $chat_ids );
         }
 
-        if ( empty( $chat_ids ) ) {
-            return new WP_Error( 'wcts_no_chat', 'هیچ مقصدی تنظیم نشده است.' );
-        }
+        if ( empty( $chat_ids ) ) return new WP_Error( 'wcts_no_chat', 'هیچ مقصدی تنظیم نشده است.' );
 
         $data = WCTS_Product_Data::extract( $product_id );
-        if ( empty( $data ) ) {
-            return new WP_Error( 'wcts_no_product', 'محصول یافت نشد.' );
-        }
+        if ( empty( $data ) ) return new WP_Error( 'wcts_no_product', 'محصول یافت نشد.' );
 
         $template = $settings['template'] ?? WCTS_Settings::default_template();
         $text = WCTS_Product_Data::render_template( $template, $data );
-
         $reply_markup = self::build_inline_keyboard( $settings, $data );
 
         $max_images = intval( $settings['max_images'] ?? 5 );
@@ -161,92 +169,48 @@ class WCTS_Hooks {
             $results[ $chat_id ] = $api->send_product( $chat_id, $text, $processed_images, $reply_markup );
             usleep( 300000 );
         }
-
         return $results;
     }
 
-    /**
-     * ساخت دکمههای اینلاین با پشتیبانی از URLهای یونیکد (فارسی)
-     * ⚠️ نکته مهم: filter_var در PHP، URLهای دارای کاراکتر یونیکد را رد میکند.
-     * پس به جای آن از preg_match استفاده میکنیم.
-     */
+    /* ============================================================
+       دکمههای اینلاین
+       ============================================================ */
     private static function build_inline_keyboard( $settings, $data ) {
         if ( empty( $settings['inline_buttons'] ) || ! is_array( $settings['inline_buttons'] ) ) {
             return null;
         }
-
         $rows = [];
-        foreach ( $settings['inline_buttons'] as $idx => $btn ) {
+        foreach ( $settings['inline_buttons'] as $btn ) {
             $btn_text = trim( (string) ( $btn['text'] ?? '' ) );
             $btn_url  = trim( (string) ( $btn['url'] ?? '' ) );
+            if ( $btn_text === '' || $btn_url === '' ) continue;
 
-            if ( $btn_text === '' || $btn_url === '' ) {
-                continue;
-            }
-
-            // جایگزینی placeholderها
             $text = WCTS_Product_Data::render_template( $btn_text, $data );
             $url  = WCTS_Product_Data::render_template( $btn_url, $data );
 
-            // تمیزکاری URL
             $url = trim( $url );
             $url = html_entity_decode( $url, ENT_QUOTES, 'UTF-8' );
             $url = str_replace( [ '&#038;', '&amp;' ], '&', $url );
-
-            // حذف کاراکترهای کنترلی و zero-width
             $url = preg_replace( '/[\x00-\x1F\x7F]/u', '', $url );
             $url = preg_replace( '/[\x{200B}-\x{200D}\x{FEFF}]/u', '', $url );
 
-            // ✅ اعتبارسنجی URL بدون filter_var (که یونیکد را رد میکند)
-            if ( ! preg_match( '#^https?://#i', $url ) ) {
-                if ( function_exists( 'wc_get_logger' ) ) {
-                    wc_get_logger()->warning(
-                        "WCTS: دکمه #{$idx} رد شد (پیشوند http/https ندارد): {$url}",
-                        [ 'source' => 'wcts' ]
-                    );
-                }
-                continue;
-            }
+            if ( ! preg_match( '#^https?://#i', $url ) ) continue;
+            if ( preg_match( '/\s/u', $url ) ) continue;
+            if ( strlen( $url ) < 10 ) continue;
 
-            if ( preg_match( '/\s/u', $url ) ) {
-                if ( function_exists( 'wc_get_logger' ) ) {
-                    wc_get_logger()->warning(
-                        "WCTS: دکمه #{$idx} رد شد (شامل فاصله): {$url}",
-                        [ 'source' => 'wcts' ]
-                    );
-                }
-                continue;
-            }
-
-            // طول URL نباید خیلی کوتاه باشد
-            if ( strlen( $url ) < 10 ) {
-                continue;
-            }
-
-            $rows[] = [
-                [
-                    'text' => wp_strip_all_tags( $text ),
-                    'url'  => $url,
-                ],
-            ];
+            $rows[] = [ [ 'text' => wp_strip_all_tags( $text ), 'url' => $url ] ];
         }
-
-        if ( empty( $rows ) ) {
-            return null;
-        }
-
-        return [ 'inline_keyboard' => $rows ];
+        return empty( $rows ) ? null : [ 'inline_keyboard' => $rows ];
     }
 
-    /**
-     * پردازش عکس: resize + watermark
-     */
+    /* ============================================================
+       پردازش عکس
+       ============================================================ */
     private static function process_image( $attachment_id, $settings ) {
         $path = get_attached_file( $attachment_id );
         if ( ! $path || ! file_exists( $path ) ) return false;
 
         $size = $settings['image_size'] ?? 'full';
-
         if ( $size === 'custom' ) {
             $w = intval( $settings['custom_width'] ?? 800 );
             $h = intval( $settings['custom_height'] ?? 800 );
@@ -264,40 +228,27 @@ class WCTS_Hooks {
         if ( ! empty( $settings['watermark_enabled'] ) && $settings['watermark_enabled'] === '1' ) {
             $path = WCTS_Watermark::apply( $path );
         }
-
         return $path;
     }
 
-    /**
-     * تغییر اندازه عکس با GD (crop به مرکز)
-     */
     private static function resize_image( $path, $target_w, $target_h ) {
         $image_data = @file_get_contents( $path );
         if ( ! $image_data ) return false;
-
         $src = @imagecreatefromstring( $image_data );
         if ( ! $src ) return false;
 
         $src_w = imagesx( $src );
         $src_h = imagesy( $src );
-        if ( $src_w < 1 || $src_h < 1 ) {
-            imagedestroy( $src );
-            return false;
-        }
+        if ( $src_w < 1 || $src_h < 1 ) { imagedestroy( $src ); return false; }
 
         $ratio_src = $src_w / $src_h;
         $ratio_target = $target_w / $target_h;
-
         if ( $ratio_src > $ratio_target ) {
-            $new_h = $src_h;
-            $new_w = $src_h * $ratio_target;
-            $src_x = ( $src_w - $new_w ) / 2;
-            $src_y = 0;
+            $new_h = $src_h; $new_w = $src_h * $ratio_target;
+            $src_x = ( $src_w - $new_w ) / 2; $src_y = 0;
         } else {
-            $new_w = $src_w;
-            $new_h = $src_w / $ratio_target;
-            $src_x = 0;
-            $src_y = ( $src_h - $new_h ) / 2;
+            $new_w = $src_w; $new_h = $src_w / $ratio_target;
+            $src_x = 0; $src_y = ( $src_h - $new_h ) / 2;
         }
 
         $dst = imagecreatetruecolor( $target_w, $target_h );
@@ -305,33 +256,21 @@ class WCTS_Hooks {
         imagesavealpha( $dst, true );
         $transparent = imagecolorallocatealpha( $dst, 0, 0, 0, 127 );
         imagefilledrectangle( $dst, 0, 0, $target_w, $target_h, $transparent );
-
-        imagecopyresampled(
-            $dst, $src,
-            0, 0,
-            intval( $src_x ), intval( $src_y ),
-            $target_w, $target_h,
-            intval( $new_w ), intval( $new_h )
-        );
+        imagecopyresampled( $dst, $src, 0, 0, intval( $src_x ), intval( $src_y ),
+            $target_w, $target_h, intval( $new_w ), intval( $new_h ) );
 
         $upload_dir = wp_upload_dir();
         $new_filename = 'wcts-resized-' . wp_unique_filename( $upload_dir['path'], basename( $path ) );
         $new_path = $upload_dir['path'] . '/' . $new_filename;
 
         $ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
-        if ( $ext === 'png' ) {
-            imagepng( $dst, $new_path );
-        } elseif ( $ext === 'gif' ) {
-            imagegif( $dst, $new_path );
-        } elseif ( $ext === 'webp' && function_exists( 'imagewebp' ) ) {
-            imagewebp( $dst, $new_path, 90 );
-        } else {
-            imagejpeg( $dst, $new_path, 92 );
-        }
+        if ( $ext === 'png' ) imagepng( $dst, $new_path );
+        elseif ( $ext === 'gif' ) imagegif( $dst, $new_path );
+        elseif ( $ext === 'webp' && function_exists( 'imagewebp' ) ) imagewebp( $dst, $new_path, 90 );
+        else imagejpeg( $dst, $new_path, 92 );
 
         imagedestroy( $src );
         imagedestroy( $dst );
-
         return $new_path;
     }
 }

@@ -1,3 +1,8 @@
+/* ============================================================
+   Telegram Woo — Admin Styles
+   ============================================================ */
+
+/* ============ Sections ============ */
 .wcts-wrap .wcts-section {
     background: #fff;
     border: 1px solid #ccd0d4;
@@ -25,6 +30,7 @@
     font-weight: 600;
 }
 
+/* ============ Rows (Chat IDs, Custom Fields, Buttons) ============ */
 .wcts-chat-row,
 .wcts-field-row,
 .wcts-button-row {
@@ -35,6 +41,7 @@
     flex-wrap: wrap;
 }
 
+/* ============ Hours Grid (legacy — برای سازگاری نگه داشته شد) ============ */
 .wcts-hours-grid {
     display: grid;
     grid-template-columns: repeat(8, 1fr);
@@ -66,6 +73,21 @@
     color: #1d4ed8;
 }
 
+/* ============ Time Rows (ساعتهای داینامیک) ============ */
+.wcts-time-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.wcts-time-input {
+    font-size: 15px;
+    padding: 6px 10px;
+    min-width: 140px;
+}
+
+/* ============ Placeholders ============ */
 .wcts-placeholders {
     display: flex;
     flex-wrap: wrap;
@@ -102,7 +124,9 @@
     color: #666;
 }
 
-/* ⭐ نتایج تست اتصال */
+/* ============================================================
+   Test Connection Results
+   ============================================================ */
 .wcts-result-lines {
     background: #f9f9f9;
     border: 1px solid #e0e0e0;
@@ -156,4 +180,198 @@
 #wcts-test-result {
     display: block;
     margin-top: 10px;
+}
+
+/* ============================================================
+   Queue Stats (آمار بالای صفحه صف)
+   ============================================================ */
+.wcts-queue-stats {
+    display: flex;
+    gap: 16px;
+    margin: 20px 0;
+}
+
+.wcts-stat-box {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 6px;
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    transition: transform .15s, box-shadow .15s;
+}
+
+.wcts-stat-box:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 3px 8px rgba(0,0,0,.08);
+}
+
+.wcts-stat-box.wcts-stat-ok {
+    border-color: #46b450;
+    background: #f7fdf7;
+}
+
+.wcts-stat-box.wcts-stat-err {
+    border-color: #dc3232;
+    background: #fdf7f7;
+}
+
+.wcts-stat-num {
+    display: block;
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #1d2327;
+}
+
+.wcts-stat-label {
+    display: block;
+    font-size: 13px;
+    color: #666;
+    margin-top: 4px;
+}
+
+/* ============================================================
+   Queue Filters
+   ============================================================ */
+.wcts-queue-filters {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 20px 0 12px;
+    flex-wrap: wrap;
+}
+
+.wcts-queue-filters .wcts-spacer {
+    flex: 1;
+}
+
+/* ============================================================
+   Queue Table
+   ============================================================ */
+.wcts-queue-table {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+.wcts-queue-table th {
+    font-weight: 600;
+    background: #f6f7f7;
+}
+
+.wcts-queue-table td {
+    vertical-align: middle;
+}
+
+/* ============================================================
+   Status Badges
+   ============================================================ */
+.wcts-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.wcts-badge-pending {
+    background: #fff4e5;
+    color: #ad5700;
+}
+
+.wcts-badge-processing {
+    background: #e5f0ff;
+    color: #1d4ed8;
+}
+
+.wcts-badge-sent {
+    background: #ecf7ed;
+    color: #1a7a2e;
+}
+
+.wcts-badge-failed {
+    background: #fcefef;
+    color: #a02121;
+}
+
+/* ============================================================
+   Add Form (در صفحه صف)
+   ============================================================ */
+.wcts-add-form .form-table th {
+    width: 160px;
+}
+
+.wcts-add-form input[type="date"],
+.wcts-add-form input[type="time"] {
+    font-size: 14px;
+    padding: 5px 8px;
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media screen and (max-width: 782px) {
+    .wcts-queue-stats {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .wcts-stat-box {
+        padding: 14px;
+    }
+
+    .wcts-stat-num {
+        font-size: 24px;
+    }
+
+    .wcts-wrap .form-table th {
+        width: auto;
+    }
+
+    .wcts-hours-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+
+    .wcts-queue-filters {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .wcts-queue-filters .wcts-spacer {
+        display: none;
+    }
+}
+
+/* ============================================================
+   Notice adjustments
+   ============================================================ */
+.wcts-wrap .notice {
+    margin: 15px 0;
+}
+
+/* ============================================================
+   WP List Table tweaks (برای صفحه صف)
+   ============================================================ */
+.wcts-wrap .wp-list-table .column-id {
+    width: 60px;
+}
+
+.wcts-wrap .wp-list-table a.button-small {
+    margin-left: 4px;
+    margin-bottom: 4px;
+}
+
+/* ============================================================
+   Date/Time Inputs
+   ============================================================ */
+input.wcts-time-input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+}
+
+input[type="date"],
+input[type="time"] {
+    direction: ltr;
 }

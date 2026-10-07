@@ -75,35 +75,58 @@ class WCTS_Settings {
         }
 
         $out['template'] = isset( $input['template'] )
-            ? wp_kses_post( $input['template'] )
-            : $defaults['template'];
+            ? wp_kses_post( $input['template'] ) : $defaults['template'];
 
         $int_keys = [
             'max_images', 'custom_width', 'custom_height',
             'watermark_opacity', 'watermark_font_size', 'watermark_margin',
-            'watermark_image_width', 'schedule_products_per_hour',
+            'watermark_image_width', 'schedule_products_per_time',
+            'queue_interval', 'queue_batch_size',
         ];
         foreach ( $int_keys as $k ) {
             $out[ $k ] = isset( $input[ $k ] ) ? intval( $input[ $k ] ) : ( $defaults[ $k ] ?? 0 );
         }
+        // محدودهها
+        if ( $out['queue_interval'] < 1 ) $out['queue_interval'] = 5;
+        if ( $out['queue_interval'] > 60 ) $out['queue_interval'] = 60;
+        if ( $out['queue_batch_size'] < 1 ) $out['queue_batch_size'] = 3;
+        if ( $out['queue_batch_size'] > 20 ) $out['queue_batch_size'] = 20;
 
-        $check_keys = [ 'send_on_new', 'send_on_update', 'enable_manual_button', 'watermark_enabled', 'enable_schedule' ];
+        $check_keys = [
+            'send_on_new', 'send_on_update', 'enable_manual_button',
+            'enable_bulk_action', 'watermark_enabled', 'enable_schedule',
+        ];
         foreach ( $check_keys as $k ) {
             $out[ $k ] = ! empty( $input[ $k ] ) ? '1' : '0';
         }
 
+        // Chat IDs
         $out['chat_ids'] = ! empty( $input['chat_ids'] ) && is_array( $input['chat_ids'] )
             ? array_values( array_filter( array_map( 'sanitize_text_field', $input['chat_ids'] ) ) )
             : [];
 
-        $out['schedule_hours'] = ! empty( $input['schedule_hours'] ) && is_array( $input['schedule_hours'] )
-            ? array_values( array_unique( array_map( 'intval', $input['schedule_hours'] ) ) )
-            : [];
+        // زمانهای زمانبندی (HH:MM)
+        $out['schedule_times'] = [];
+        if ( ! empty( $input['schedule_times'] ) && is_array( $input['schedule_times'] ) ) {
+            foreach ( $input['schedule_times'] as $t ) {
+                $t = trim( sanitize_text_field( $t ) );
+                if ( $t === '' ) continue;
+                if ( ! preg_match( '/^\d{1,2}:\d{2}$/', $t ) ) continue;
+                // نرمالسازی
+                list( $h, $m ) = explode( ':', $t );
+                $h = max( 0, min( 23, intval( $h ) ) );
+                $m = max( 0, min( 59, intval( $m ) ) );
+                $out['schedule_times'][] = sprintf( '%02d:%02d', $h, $m );
+            }
+            $out['schedule_times'] = array_values( array_unique( $out['schedule_times'] ) );
+            sort( $out['schedule_times'] );
+        }
 
+        // محصولات پول
         $out['schedule_product_ids'] = ! empty( $input['schedule_product_ids'] ) && is_array( $input['schedule_product_ids'] )
-            ? array_values( array_unique( array_map( 'intval', $input['schedule_product_ids'] ) ) )
-            : [];
+            ? array_values( array_unique( array_map( 'intval', $input['schedule_product_ids'] ) ) ) : [];
 
+        // ویژگیهای سفارشی
         $out['custom_fields'] = [];
         if ( ! empty( $input['custom_fields'] ) && is_array( $input['custom_fields'] ) ) {
             foreach ( $input['custom_fields'] as $f ) {
@@ -115,13 +138,13 @@ class WCTS_Settings {
             }
         }
 
+        // دکمههای اینلاین
         $out['inline_buttons'] = [];
         if ( ! empty( $input['inline_buttons'] ) && is_array( $input['inline_buttons'] ) ) {
             foreach ( $input['inline_buttons'] as $b ) {
                 $text = trim( $b['text'] ?? '' );
                 $url  = trim( $b['url'] ?? '' );
                 if ( $text === '' || $url === '' ) continue;
-
                 $out['inline_buttons'][] = [
                     'text' => sanitize_text_field( $text ),
                     'url'  => sanitize_text_field( $url ),
@@ -129,14 +152,23 @@ class WCTS_Settings {
             }
         }
 
+        // حفظ ایندکسهای داخلی
         $old = get_option( self::$option_name, [] );
-        $out['schedule_last_index'] = isset( $old['schedule_last_index'] ) ? intval( $old['schedule_last_index'] ) : 0;
+        $out['schedule_last_index']      = intval( $old['schedule_last_index'] ?? 0 );
+        $out['schedule_last_check_his']  = $old['schedule_last_check_his'] ?? '';
+        $out['schedule_last_check_date'] = $old['schedule_last_check_date'] ?? '';
 
         return $out;
     }
 
     public static function enqueue_assets( $hook ) {
-        if ( $hook !== 'toplevel_page_wcts-settings' ) return;
+        $allowed_hooks = [
+            'toplevel_page_wcts-settings',
+            'telegram-woo_page_wcts-queue',
+            'toplevel_page_wcts-queue',
+        ];
+        if ( ! in_array( $hook, $allowed_hooks, true ) ) return;
+
         wp_enqueue_style( 'wcts-admin', WCTS_PLUGIN_URL . 'assets/admin.css', [], WCTS_VERSION );
         wp_enqueue_media();
 
@@ -146,25 +178,14 @@ class WCTS_Settings {
         }
     }
 
-    /**
-     * ⭐ AJAX تست اتصال
-     * حالا هر نتیجه رو جداگانه برمیگردونه تا در UI خطبهخط نمایش داده بشه
-     */
     public static function ajax_test_connection() {
         check_ajax_referer( 'wcts_test_nonce', 'nonce' );
-
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( [ 'message' => 'دسترسی غیرمجاز' ] );
-        }
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( [ 'message' => 'دسترسی غیرمجاز' ] );
 
         if ( isset( $_POST['bot_token'] ) || isset( $_POST['worker_url'] ) ) {
             $current = get_option( self::$option_name, [] );
-            if ( isset( $_POST['bot_token'] ) ) {
-                $current['bot_token'] = sanitize_text_field( wp_unslash( $_POST['bot_token'] ) );
-            }
-            if ( isset( $_POST['worker_url'] ) ) {
-                $current['worker_url'] = sanitize_text_field( wp_unslash( $_POST['worker_url'] ) );
-            }
+            if ( isset( $_POST['bot_token'] ) ) $current['bot_token'] = sanitize_text_field( wp_unslash( $_POST['bot_token'] ) );
+            if ( isset( $_POST['worker_url'] ) ) $current['worker_url'] = sanitize_text_field( wp_unslash( $_POST['worker_url'] ) );
             update_option( self::$option_name, $current );
         }
 
@@ -172,92 +193,46 @@ class WCTS_Settings {
             ? array_filter( array_map( 'sanitize_text_field', wp_unslash( $_POST['chat_ids'] ) ) )
             : array_filter( self::get( 'chat_ids', [] ) );
 
-        if ( empty( $chat_ids ) ) {
-            wp_send_json_error( [ 'message' => 'هیچ Chat ID وارد نشده است.' ] );
-        }
-        if ( empty( self::get( 'bot_token' ) ) ) {
-            wp_send_json_error( [ 'message' => 'توکن ربات وارد نشده است.' ] );
-        }
+        if ( empty( $chat_ids ) ) wp_send_json_error( [ 'message' => 'هیچ Chat ID وارد نشده است.' ] );
+        if ( empty( self::get( 'bot_token' ) ) ) wp_send_json_error( [ 'message' => 'توکن ربات وارد نشده است.' ] );
 
         $api = new WCTS_Telegram_API();
-
-        // ⭐ آرایهی جداگانه برای نتایج موفق و ناموفق
         $success_lines = [];
         $error_lines   = [];
 
         foreach ( $chat_ids as $cid ) {
             $cid = trim( $cid );
             if ( $cid === '' ) continue;
-
             $res = $api->test_connection( $cid );
-
             if ( is_array( $res ) && ! empty( $res['ok'] ) ) {
-                // ✅ موفق
-                $success_lines[] = sprintf(
-                    '✅ %s — ارسال موفق',
-                    esc_html( $cid )
-                );
+                $success_lines[] = sprintf( '✅ %s — ارسال موفق', esc_html( $cid ) );
             } else {
-                // ❌ ناموفق
-                $err_msg = 'خطای نامشخص';
-                if ( is_array( $res ) && ! empty( $res['description'] ) ) {
-                    $err_msg = $res['description'];
-                } elseif ( is_wp_error( $res ) ) {
-                    $err_msg = $res->get_error_message();
-                }
-
-                $error_lines[] = sprintf(
-                    '❌ %s — %s',
-                    esc_html( $cid ),
-                    esc_html( $err_msg )
-                );
+                $err = 'خطای نامشخص';
+                if ( is_array( $res ) && ! empty( $res['description'] ) ) $err = $res['description'];
+                elseif ( is_wp_error( $res ) ) $err = $res->get_error_message();
+                $error_lines[] = sprintf( '❌ %s — %s', esc_html( $cid ), esc_html( $err ) );
             }
         }
 
-        // ساخت HTML خطبهخط
         $html = '<div class="wcts-result-lines">';
-
-        // خلاصه
-        $total = count( $success_lines ) + count( $error_lines );
         $html .= '<div class="wcts-result-summary">';
-        $html .= sprintf(
-            'نتیجه: <strong>%d</strong> موفق از <strong>%d</strong> مقصد',
-            count( $success_lines ),
-            $total
-        );
+        $html .= sprintf( 'نتیجه: <strong>%d</strong> موفق از <strong>%d</strong> مقصد',
+            count( $success_lines ), count( $success_lines ) + count( $error_lines ) );
         $html .= '</div>';
-
-        // خطوط موفق
         if ( ! empty( $success_lines ) ) {
             $html .= '<div class="wcts-result-group wcts-result-ok">';
-            foreach ( $success_lines as $line ) {
-                $html .= '<div class="wcts-result-line">' . $line . '</div>';
-            }
+            foreach ( $success_lines as $l ) $html .= '<div class="wcts-result-line">' . $l . '</div>';
             $html .= '</div>';
         }
-
-        // خطوط خطا
         if ( ! empty( $error_lines ) ) {
             $html .= '<div class="wcts-result-group wcts-result-err">';
-            foreach ( $error_lines as $line ) {
-                $html .= '<div class="wcts-result-line">' . $line . '</div>';
-            }
+            foreach ( $error_lines as $l ) $html .= '<div class="wcts-result-line">' . $l . '</div>';
             $html .= '</div>';
         }
-
         $html .= '</div>';
 
-        // ارسال پاسخ
-        if ( ! empty( $success_lines ) && empty( $error_lines ) ) {
-            // همه موفق
-            wp_send_json_success( [ 'html' => $html ] );
-        } elseif ( ! empty( $success_lines ) && ! empty( $error_lines ) ) {
-            // نیمه موفق — به عنوان warning برمیگردونیم ولی success=true
-            wp_send_json_success( [ 'html' => $html ] );
-        } else {
-            // همه ناموفق
-            wp_send_json_error( [ 'html' => $html ] );
-        }
+        if ( ! empty( $success_lines ) ) wp_send_json_success( [ 'html' => $html ] );
+        else wp_send_json_error( [ 'html' => $html ] );
     }
 
     public static function render_page() {
@@ -268,28 +243,22 @@ class WCTS_Settings {
             <form method="post" action="options.php" id="wcts-settings-form">
                 <?php settings_fields( 'wcts_settings_group' ); ?>
 
-                <!-- ===== بخش ۱: اتصال تلگرام ===== -->
+                <!-- ===== بخش ۱: اتصال ===== -->
                 <div class="wcts-section">
                     <h2>🔗 اتصال تلگرام</h2>
                     <table class="form-table">
                         <tr>
                             <th>توکن ربات تلگرام</th>
-                            <td>
-                                <input type="text" name="<?php echo self::$option_name; ?>[bot_token]"
-                                       id="wcts_bot_token"
-                                       value="<?php echo esc_attr( $opts['bot_token'] ); ?>"
-                                       class="regular-text" dir="ltr" />
-                            </td>
+                            <td><input type="text" name="<?php echo self::$option_name; ?>[bot_token]"
+                                       id="wcts_bot_token" value="<?php echo esc_attr( $opts['bot_token'] ); ?>"
+                                       class="regular-text" dir="ltr" /></td>
                         </tr>
                         <tr>
                             <th>آدرس Cloudflare Worker</th>
-                            <td>
-                                <input type="text" name="<?php echo self::$option_name; ?>[worker_url]"
-                                       id="wcts_worker_url"
-                                       value="<?php echo esc_attr( $opts['worker_url'] ); ?>"
+                            <td><input type="text" name="<?php echo self::$option_name; ?>[worker_url]"
+                                       id="wcts_worker_url" value="<?php echo esc_attr( $opts['worker_url'] ); ?>"
                                        class="regular-text" dir="ltr"
-                                       placeholder="https://my-worker.xxx.workers.dev" />
-                            </td>
+                                       placeholder="https://my-worker.xxx.workers.dev" /></td>
                         </tr>
                         <tr>
                             <th>مقصدهای ارسال (Chat ID)</th>
@@ -299,8 +268,7 @@ class WCTS_Settings {
                                     $chat_ids = ! empty( $opts['chat_ids'] ) ? $opts['chat_ids'] : [''];
                                     foreach ( $chat_ids as $chat_id ) : ?>
                                         <div class="wcts-chat-row">
-                                            <input type="text"
-                                                   name="<?php echo self::$option_name; ?>[chat_ids][]"
+                                            <input type="text" name="<?php echo self::$option_name; ?>[chat_ids][]"
                                                    value="<?php echo esc_attr( $chat_id ); ?>"
                                                    class="regular-text" dir="ltr" placeholder="-1001234567890" />
                                             <button type="button" class="button wcts-remove-chat">حذف</button>
@@ -308,14 +276,6 @@ class WCTS_Settings {
                                     <?php endforeach; ?>
                                 </div>
                                 <button type="button" class="button" id="wcts-add-chat">+ افزودن مقصد</button>
-                                <p class="description" style="margin-top:8px;">
-                                    <strong>راهنمای Chat ID:</strong><br/>
-                                    • کانال عمومی: <code>-100</code> + شناسه عددی (مثلاً <code>-1002847069703</code>)<br/>
-                                    • گروه: <code>-</code> + شناسه عددی<br/>
-                                    • برای دریافت، ربات را <strong>ادمین</strong> کانال/گروه کنید،
-                                    سپس از <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a>
-                                    یا <a href="https://t.me/getidsbot" target="_blank">@getidsbot</a> استفاده کنید.
-                                </p>
                             </td>
                         </tr>
                         <tr>
@@ -337,38 +297,87 @@ class WCTS_Settings {
                         <tr>
                             <th>ارسال فوری</th>
                             <td>
-                                <label><input type="checkbox"
-                                    name="<?php echo self::$option_name; ?>[send_on_new]"
+                                <label><input type="checkbox" name="<?php echo self::$option_name; ?>[send_on_new]"
                                     value="1" <?php checked( $opts['send_on_new'], '1' ); ?> />
                                     ارسال خودکار هنگام <strong>انتشار محصول جدید</strong></label><br/>
-                                <label><input type="checkbox"
-                                    name="<?php echo self::$option_name; ?>[send_on_update]"
+                                <label><input type="checkbox" name="<?php echo self::$option_name; ?>[send_on_update]"
                                     value="1" <?php checked( $opts['send_on_update'], '1' ); ?> />
                                     ارسال خودکار هنگام <strong>ویرایش و ذخیره</strong> محصول</label><br/>
-                                <label><input type="checkbox"
-                                    name="<?php echo self::$option_name; ?>[enable_manual_button]"
+                                <label><input type="checkbox" name="<?php echo self::$option_name; ?>[enable_manual_button]"
                                     value="1" <?php checked( $opts['enable_manual_button'], '1' ); ?> />
-                                    نمایش <strong>دکمه دستی</strong> در صفحه ویرایش محصول</label>
+                                    نمایش <strong>دکمه دستی</strong> در صفحه ویرایش محصول</label><br/>
+                                <label><input type="checkbox" name="<?php echo self::$option_name; ?>[enable_bulk_action]"
+                                    value="1" <?php checked( $opts['enable_bulk_action'], '1' ); ?> />
+                                    نمایش <strong>عملیات گروهی (Bulk Action)</strong> در صفحه لیست محصولات
+                                    <span style="color:#666;font-size:12px;">— انتخاب چند محصول → «افزودن به صف تلگرام»</span></label>
                             </td>
                         </tr>
                         <tr>
                             <th>محصول متغیر</th>
                             <td>
-                                <label><input type="radio"
-                                    name="<?php echo self::$option_name; ?>[variable_behavior]"
+                                <label><input type="radio" name="<?php echo self::$option_name; ?>[variable_behavior]"
                                     value="parent_only" <?php checked( $opts['variable_behavior'], 'parent_only' ); ?> />
                                     فقط پیام محصول اصلی</label><br/>
-                                <label><input type="radio"
-                                    name="<?php echo self::$option_name; ?>[variable_behavior]"
+                                <label><input type="radio" name="<?php echo self::$option_name; ?>[variable_behavior]"
                                     value="parent_and_variations" <?php checked( $opts['variable_behavior'], 'parent_and_variations' ); ?> />
                                     پیام جداگانه برای هر متغیر</label>
                             </td>
                         </tr>
                     </table>
+                </div>
 
-                    <hr style="margin:20px 0;" />
+                <!-- ===== بخش ۳: صف ارسال (کرون) ===== -->
+                <div class="wcts-section">
+                    <h2>📬 صف ارسال و کرون</h2>
+                    <p class="description">
+                        هر محصولی که به صف اضافه شود (دستی، bulk، یا با زمانبندی)، در زمان مقرر توسط کرون پردازش میشود.
+                    </p>
+                    <table class="form-table">
+                        <tr>
+                            <th>فاصله اجرای کرون</th>
+                            <td>
+                                <input type="number" class="small-text"
+                                       name="<?php echo self::$option_name; ?>[queue_interval]"
+                                       value="<?php echo esc_attr( $opts['queue_interval'] ); ?>"
+                                       min="1" max="60" /> دقیقه
+                                <p class="description">
+                                    هر چند دقیقه یک بار صف بررسی و پردازش شود.
+                                    <br/>⚠️ برای هاستهای اشتراکی، کمتر از <strong>5 دقیقه</strong> توصیه نمیشود.
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>تعداد ارسال در هر اجرا</th>
+                            <td>
+                                <input type="number" class="small-text"
+                                       name="<?php echo self::$option_name; ?>[queue_batch_size]"
+                                       value="<?php echo esc_attr( $opts['queue_batch_size'] ); ?>"
+                                       min="1" max="20" />
+                                <p class="description">در هر بار اجرای کرون چند آیتم از صف پردازش شود.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>وضعیت کرون</th>
+                            <td>
+                                <?php
+                                $next = wp_next_scheduled( 'wcts_queue_cron' );
+                                if ( $next ) :
+                                    ?>
+                                    <span style="color:green;">✅ فعال — اجرای بعدی: <?php echo esc_html( date_i18n( 'Y/m/d H:i:s', $next ) ); ?></span>
+                                <?php else : ?>
+                                    <span style="color:red;">❌ کرون ثبت نشده</span>
+                                    <p class="description">
+                                        اگر کرون ثبت نشده، افزونه را غیرفعال و دوباره فعال کنید.
+                                    </p>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
 
-                    <h3>⏱️ ارسال زمانبندی شده (کرون ساعتی)</h3>
+                <!-- ===== بخش ۴: زمانبندی خودکار ===== -->
+                <div class="wcts-section">
+                    <h2>⏱️ زمانبندی خودکار (افزودن خودکار به صف)</h2>
                     <table class="form-table">
                         <tr>
                             <th>فعالسازی</th>
@@ -376,7 +385,7 @@ class WCTS_Settings {
                                 <label><input type="checkbox" id="wcts_enable_schedule"
                                     name="<?php echo self::$option_name; ?>[enable_schedule]"
                                     value="1" <?php checked( $opts['enable_schedule'], '1' ); ?> />
-                                    فعالسازی ارسال خودکار زمانبندی</label>
+                                    در زمانهای زیر، محصولات به صف اضافه شوند</label>
                             </td>
                         </tr>
                     </table>
@@ -386,39 +395,45 @@ class WCTS_Settings {
                             <tr>
                                 <th>ساعتهای اجرا</th>
                                 <td>
-                                    <p class="description">اگر ساعتی انتخاب نشود، سیستم هر ساعت اجرا میشود و محصولات را <strong>رندوم</strong> انتخاب میکند.</p>
-                                    <div class="wcts-hours-grid">
+                                    <p class="description">
+                                        هر تعداد ساعت خواستی اضافه کن. وقتی کرون اجرا شد، اگر ساعتی از این لیست
+                                        در بازهی اخیر گذشته باشد، محصولات به صف اضافه میشوند.
+                                    </p>
+
+                                    <div id="wcts-times-wrapper">
                                         <?php
-                                        $selected_hours = ! empty( $opts['schedule_hours'] ) ? $opts['schedule_hours'] : [];
-                                        for ( $h = 0; $h < 24; $h++ ) :
-                                            $val = str_pad( $h, 2, '0', STR_PAD_LEFT );
-                                        ?>
-                                            <label class="wcts-hour-item">
-                                                <input type="checkbox"
-                                                       name="<?php echo self::$option_name; ?>[schedule_hours][]"
-                                                       value="<?php echo $h; ?>"
-                                                       <?php checked( in_array( $h, $selected_hours ) ); ?> />
-                                                <span><?php echo $val; ?>:00</span>
-                                            </label>
-                                        <?php endfor; ?>
+                                        $times = ! empty( $opts['schedule_times'] ) ? $opts['schedule_times'] : [];
+                                        foreach ( $times as $t ) : ?>
+                                            <div class="wcts-time-row">
+                                                <input type="time"
+                                                       name="<?php echo self::$option_name; ?>[schedule_times][]"
+                                                       value="<?php echo esc_attr( $t ); ?>"
+                                                       class="wcts-time-input" />
+                                                <button type="button" class="button wcts-remove-time">🗑️ حذف</button>
+                                            </div>
+                                        <?php endforeach; ?>
                                     </div>
+
+                                    <button type="button" class="button button-primary" id="wcts-add-time">
+                                        ➕ افزودن ساعت
+                                    </button>
                                 </td>
                             </tr>
                             <tr>
-                                <th>تعداد محصول در هر اجرا</th>
+                                <th>تعداد محصول در هر زمان</th>
                                 <td>
                                     <input type="number" class="small-text"
-                                           name="<?php echo self::$option_name; ?>[schedule_products_per_hour]"
-                                           value="<?php echo esc_attr( $opts['schedule_products_per_hour'] ); ?>"
+                                           name="<?php echo self::$option_name; ?>[schedule_products_per_time]"
+                                           value="<?php echo esc_attr( $opts['schedule_products_per_time'] ); ?>"
                                            min="1" max="50" />
                                 </td>
                             </tr>
                             <tr>
-                                <th>محصولات اختصاصی زمانبندی</th>
+                                <th>محصولات اختصاصی</th>
                                 <td>
                                     <select class="wc-product-search" multiple="multiple"
                                             name="<?php echo self::$option_name; ?>[schedule_product_ids][]"
-                                            style="width: 60%; min-width: 400px;"
+                                            style="width:60%;min-width:400px;"
                                             data-placeholder="جستجوی محصول..."
                                             data-action="woocommerce_json_search_products">
                                         <?php
@@ -433,8 +448,8 @@ class WCTS_Settings {
                                         <?php endforeach; ?>
                                     </select>
                                     <p class="description">
-                                        ✅ اگر محصول انتخاب کنید: همانها به ترتیب ارسال میشوند.<br/>
-                                        🔄 اگر خالی بگذارید: هر بار محصولات <strong>تصادفی</strong> انتخاب میشوند.
+                                        ✅ اگر محصول انتخاب کنی: همانها به ترتیب چرخشی به صف اضافه میشوند.<br/>
+                                        🔄 اگر خالی بگذاری: هر بار محصولات تصادفی از کل فروشگاه انتخاب میشوند.
                                     </p>
                                 </td>
                             </tr>
@@ -442,7 +457,7 @@ class WCTS_Settings {
                     </div>
                 </div>
 
-                <!-- ===== بخش ۳: قالب پیام ===== -->
+                <!-- ===== بخش ۵: قالب پیام ===== -->
                 <div class="wcts-section">
                     <h2>📝 قالب پیام</h2>
                     <table class="form-table">
@@ -451,32 +466,19 @@ class WCTS_Settings {
                             <td>
                                 <textarea id="wcts_template"
                                           name="<?php echo self::$option_name; ?>[template]"
-                                          rows="18" class="large-text" dir="rtl"><?php
-                                    echo esc_textarea( $opts['template'] );
-                                ?></textarea>
+                                          rows="18" class="large-text" dir="rtl"><?php echo esc_textarea( $opts['template'] ); ?></textarea>
                                 <p class="description">روی هر placeholder کلیک کنید تا به محل مکاننما اضافه شود.</p>
                                 <div class="wcts-placeholders">
                                     <?php
                                     $placeholders = [
-                                        '{product_name}'      => 'نام محصول',
-                                        '{product_id}'        => 'شناسه',
-                                        '{sku}'               => 'کد SKU',
-                                        '{price}'             => 'قیمت',
-                                        '{regular_price}'     => 'قیمت اصلی',
-                                        '{sale_price}'        => 'قیمت تخفیفدار',
-                                        '{discount_percent}'  => 'درصد تخفیف',
-                                        '{stock_status}'      => 'وضعیت موجودی',
-                                        '{stock_quantity}'    => 'تعداد موجودی',
-                                        '{categories}'        => 'دستهبندیها',
-                                        '{tags}'              => 'برچسبها',
-                                        '{short_description}' => 'توضیح کوتاه',
-                                        '{attributes}'        => 'ویژگیها',
-                                        '{weight}'            => 'وزن',
-                                        '{dimensions}'        => 'ابعاد',
-                                        '{product_url}'       => 'لینک محصول',
-                                        '{site_name}'         => 'نام سایت',
-                                        '{date}'              => 'تاریخ',
-                                        '{custom_fields}'     => 'ویژگیهای سفارشی',
+                                        '{product_name}'=>'نام محصول','{product_id}'=>'شناسه','{sku}'=>'کد SKU',
+                                        '{price}'=>'قیمت','{regular_price}'=>'قیمت اصلی','{sale_price}'=>'قیمت تخفیفدار',
+                                        '{discount_percent}'=>'درصد تخفیف','{stock_status}'=>'وضعیت موجودی',
+                                        '{stock_quantity}'=>'تعداد موجودی','{categories}'=>'دستهبندیها',
+                                        '{tags}'=>'برچسبها','{short_description}'=>'توضیح کوتاه',
+                                        '{attributes}'=>'ویژگیها','{weight}'=>'وزن','{dimensions}'=>'ابعاد',
+                                        '{product_url}'=>'لینک محصول','{site_name}'=>'نام سایت',
+                                        '{date}'=>'تاریخ','{custom_fields}'=>'ویژگیهای سفارشی',
                                     ];
                                     foreach ( $placeholders as $ph => $label ) : ?>
                                         <span class="wcts-ph" data-ph="<?php echo esc_attr( $ph ); ?>">
@@ -487,49 +489,26 @@ class WCTS_Settings {
                                 </div>
                             </td>
                         </tr>
-
                         <tr>
                             <th>ایموجی هر خط توضیحات کوتاه</th>
                             <td>
-                                <input type="text"
-                                       name="<?php echo self::$option_name; ?>[short_desc_line_emoji]"
+                                <input type="text" name="<?php echo self::$option_name; ?>[short_desc_line_emoji]"
                                        value="<?php echo esc_attr( $opts['short_desc_line_emoji'] ); ?>"
-                                       class="regular-text"
-                                       placeholder="مثلاً: 🔹"
-                                       maxlength="10"
-                                       style="font-size:18px;" />
-                                <p class="description">
-                                    این ایموجی به ابتدای <strong>هر خط</strong> از توضیح کوتاه محصول اضافه میشود.<br/>
-                                    اگه خالی بگذاری، هیچ ایموجی اضافه نمیشه.
-                                </p>
-                                <div style="margin-top:8px;font-size:16px;">
-                                    مثال:
-                                    <span style="background:#f0f6fc;padding:4px 8px;border-radius:4px;">
-                                        🔹 جنس چرم طبیعی<br/>
-                                        🔹 سایز ۴۲ تا ۴۵
-                                    </span>
-                                </div>
+                                       class="regular-text" placeholder="مثلاً: 🔹" maxlength="10" style="font-size:18px;" />
                             </td>
                         </tr>
                     </table>
 
                     <h3>🔘 دکمههای شیشهای تلگرام</h3>
-                    <p class="description">
-                        میتوانید در متن دکمه و لینک، از همان placeholderهای بالا استفاده کنید.
-                    </p>
                     <div id="wcts-buttons-wrapper">
                         <?php
                         $buttons = ! empty( $opts['inline_buttons'] ) ? $opts['inline_buttons'] : [];
                         foreach ( $buttons as $i => $btn ) : ?>
                             <div class="wcts-button-row">
-                                <input type="text"
-                                       name="<?php echo self::$option_name; ?>[inline_buttons][<?php echo $i; ?>][text]"
-                                       value="<?php echo esc_attr( $btn['text'] ); ?>"
-                                       placeholder="متن دکمه" class="regular-text" />
-                                <input type="text"
-                                       name="<?php echo self::$option_name; ?>[inline_buttons][<?php echo $i; ?>][url]"
-                                       value="<?php echo esc_attr( $btn['url'] ); ?>"
-                                       placeholder="لینک (مثلاً: {product_url})" class="large-text" dir="ltr" />
+                                <input type="text" name="<?php echo self::$option_name; ?>[inline_buttons][<?php echo $i; ?>][text]"
+                                       value="<?php echo esc_attr( $btn['text'] ); ?>" placeholder="متن دکمه" class="regular-text" />
+                                <input type="text" name="<?php echo self::$option_name; ?>[inline_buttons][<?php echo $i; ?>][url]"
+                                       value="<?php echo esc_attr( $btn['url'] ); ?>" placeholder="لینک (مثلاً: {product_url})" class="large-text" dir="ltr" />
                                 <button type="button" class="button wcts-remove-button">حذف</button>
                             </div>
                         <?php endforeach; ?>
@@ -537,17 +516,14 @@ class WCTS_Settings {
                     <button type="button" class="button" id="wcts-add-button">+ افزودن دکمه</button>
                 </div>
 
-                <!-- ===== بخش ۴: عکسها ===== -->
+                <!-- ===== بخش ۶: عکسها ===== -->
                 <div class="wcts-section">
                     <h2>🖼️ تنظیمات عکسها</h2>
                     <table class="form-table">
                         <tr>
                             <th>حداکثر تعداد عکس</th>
-                            <td>
-                                <input type="number" name="<?php echo self::$option_name; ?>[max_images]"
-                                       value="<?php echo esc_attr( $opts['max_images'] ); ?>"
-                                       min="1" max="30" class="small-text" />
-                            </td>
+                            <td><input type="number" name="<?php echo self::$option_name; ?>[max_images]"
+                                       value="<?php echo esc_attr( $opts['max_images'] ); ?>" min="1" max="30" class="small-text" /></td>
                         </tr>
                         <tr>
                             <th>ابعاد عکس</th>
@@ -560,8 +536,7 @@ class WCTS_Settings {
                                 </select>
                             </td>
                         </tr>
-                        <tr class="wcts-custom-size-row"
-                            style="<?php echo $opts['image_size'] === 'custom' ? '' : 'display:none;'; ?>">
+                        <tr class="wcts-custom-size-row" style="<?php echo $opts['image_size'] === 'custom' ? '' : 'display:none;'; ?>">
                             <th>ابعاد سفارشی</th>
                             <td>
                                 عرض: <input type="number" name="<?php echo self::$option_name; ?>[custom_width]"
@@ -574,46 +549,36 @@ class WCTS_Settings {
                     </table>
                 </div>
 
-                <!-- ===== بخش ۵: واترمارک ===== -->
+                <!-- ===== بخش ۷: واترمارک ===== -->
                 <div class="wcts-section">
                     <h2>💧 واترمارک</h2>
                     <table class="form-table">
                         <tr>
                             <th>فعالسازی</th>
-                            <td>
-                                <label><input type="checkbox"
-                                    name="<?php echo self::$option_name; ?>[watermark_enabled]"
-                                    value="1" <?php checked( $opts['watermark_enabled'], '1' ); ?> />
-                                    افزودن واترمارک به عکسهای ارسالی</label>
-                            </td>
+                            <td><label><input type="checkbox" name="<?php echo self::$option_name; ?>[watermark_enabled]"
+                                value="1" <?php checked( $opts['watermark_enabled'], '1' ); ?> />
+                                افزودن واترمارک به عکسهای ارسالی</label></td>
                         </tr>
                         <tr>
                             <th>نوع</th>
                             <td>
-                                <label><input type="radio"
-                                    name="<?php echo self::$option_name; ?>[watermark_type]"
+                                <label><input type="radio" name="<?php echo self::$option_name; ?>[watermark_type]"
                                     value="text" <?php checked( $opts['watermark_type'], 'text' ); ?> /> متنی</label>
                                 &nbsp;&nbsp;
-                                <label><input type="radio"
-                                    name="<?php echo self::$option_name; ?>[watermark_type]"
-                                    value="image" <?php checked( $opts['watermark_type'], 'image' ); ?> /> تصویری (لوگو)</label>
+                                <label><input type="radio" name="<?php echo self::$option_name; ?>[watermark_type]"
+                                    value="image" <?php checked( $opts['watermark_type'], 'image' ); ?> /> تصویری</label>
                             </td>
                         </tr>
-                        <tr class="wcts-wm-text-row"
-                            style="<?php echo $opts['watermark_type'] === 'text' ? '' : 'display:none;'; ?>">
+                        <tr class="wcts-wm-text-row" style="<?php echo $opts['watermark_type'] === 'text' ? '' : 'display:none;'; ?>">
                             <th>متن واترمارک</th>
-                            <td>
-                                <input type="text" name="<?php echo self::$option_name; ?>[watermark_text]"
-                                       value="<?php echo esc_attr( $opts['watermark_text'] ); ?>" class="regular-text" />
-                            </td>
+                            <td><input type="text" name="<?php echo self::$option_name; ?>[watermark_text]"
+                                       value="<?php echo esc_attr( $opts['watermark_text'] ); ?>" class="regular-text" /></td>
                         </tr>
-                        <tr class="wcts-wm-image-row"
-                            style="<?php echo $opts['watermark_type'] === 'image' ? '' : 'display:none;'; ?>">
+                        <tr class="wcts-wm-image-row" style="<?php echo $opts['watermark_type'] === 'image' ? '' : 'display:none;'; ?>">
                             <th>تصویر واترمارک</th>
                             <td>
                                 <input type="hidden" name="<?php echo self::$option_name; ?>[watermark_image_id]"
-                                       id="wcts_watermark_image_id"
-                                       value="<?php echo esc_attr( $opts['watermark_image_id'] ); ?>" />
+                                       id="wcts_watermark_image_id" value="<?php echo esc_attr( $opts['watermark_image_id'] ); ?>" />
                                 <button type="button" class="button" id="wcts-select-watermark-image">انتخاب تصویر</button>
                                 <button type="button" class="button" id="wcts-clear-watermark-image">پاک کردن</button>
                                 <div id="wcts-watermark-preview" style="margin-top:10px;">
@@ -626,14 +591,10 @@ class WCTS_Settings {
                                 </div>
                             </td>
                         </tr>
-                        <tr class="wcts-wm-image-row"
-                            style="<?php echo $opts['watermark_type'] === 'image' ? '' : 'display:none;'; ?>">
+                        <tr class="wcts-wm-image-row" style="<?php echo $opts['watermark_type'] === 'image' ? '' : 'display:none;'; ?>">
                             <th>عرض واترمارک</th>
-                            <td>
-                                <input type="number" name="<?php echo self::$option_name; ?>[watermark_image_width]"
-                                       value="<?php echo esc_attr( $opts['watermark_image_width'] ); ?>"
-                                       min="10" max="2000" class="small-text" /> px
-                            </td>
+                            <td><input type="number" name="<?php echo self::$option_name; ?>[watermark_image_width]"
+                                       value="<?php echo esc_attr( $opts['watermark_image_width'] ); ?>" min="10" max="2000" class="small-text" /> px</td>
                         </tr>
                         <tr>
                             <th>موقعیت</th>
@@ -641,19 +602,12 @@ class WCTS_Settings {
                                 <select name="<?php echo self::$option_name; ?>[watermark_position]">
                                     <?php
                                     $positions = [
-                                        'top-left'      => 'بالا چپ',
-                                        'top-center'    => 'بالا وسط',
-                                        'top-right'     => 'بالا راست',
-                                        'middle-left'   => 'وسط چپ',
-                                        'middle-center' => 'وسط (مرکز)',
-                                        'middle-right'  => 'وسط راست',
-                                        'bottom-left'   => 'پایین چپ',
-                                        'bottom-center' => 'پایین وسط',
-                                        'bottom-right'  => 'پایین راست',
+                                        'top-left'=>'بالا چپ','top-center'=>'بالا وسط','top-right'=>'بالا راست',
+                                        'middle-left'=>'وسط چپ','middle-center'=>'وسط (مرکز)','middle-right'=>'وسط راست',
+                                        'bottom-left'=>'پایین چپ','bottom-center'=>'پایین وسط','bottom-right'=>'پایین راست',
                                     ];
                                     foreach ( $positions as $val => $label ) : ?>
-                                        <option value="<?php echo esc_attr( $val ); ?>"
-                                                <?php selected( $opts['watermark_position'], $val ); ?>>
+                                        <option value="<?php echo esc_attr( $val ); ?>" <?php selected( $opts['watermark_position'], $val ); ?>>
                                             <?php echo esc_html( $label ); ?>
                                         </option>
                                     <?php endforeach; ?>
@@ -663,27 +617,20 @@ class WCTS_Settings {
                         <tr>
                             <th>ظاهر</th>
                             <td>
-                                شفافیت (0-100):
-                                <input type="number" name="<?php echo self::$option_name; ?>[watermark_opacity]"
-                                       value="<?php echo esc_attr( $opts['watermark_opacity'] ); ?>"
-                                       min="0" max="100" class="small-text" /> %<br/><br/>
-                                اندازه فونت (متنی):
-                                <input type="number" name="<?php echo self::$option_name; ?>[watermark_font_size]"
-                                       value="<?php echo esc_attr( $opts['watermark_font_size'] ); ?>"
-                                       min="8" max="72" class="small-text" /> px<br/><br/>
-                                رنگ متن:
-                                <input type="color" name="<?php echo self::$option_name; ?>[watermark_color]"
+                                شفافیت: <input type="number" name="<?php echo self::$option_name; ?>[watermark_opacity]"
+                                       value="<?php echo esc_attr( $opts['watermark_opacity'] ); ?>" min="0" max="100" class="small-text" /> %<br/><br/>
+                                اندازه فونت (متنی): <input type="number" name="<?php echo self::$option_name; ?>[watermark_font_size]"
+                                       value="<?php echo esc_attr( $opts['watermark_font_size'] ); ?>" min="8" max="72" class="small-text" /> px<br/><br/>
+                                رنگ متن: <input type="color" name="<?php echo self::$option_name; ?>[watermark_color]"
                                        value="<?php echo esc_attr( $opts['watermark_color'] ); ?>" /><br/><br/>
-                                فاصله از لبه:
-                                <input type="number" name="<?php echo self::$option_name; ?>[watermark_margin]"
-                                       value="<?php echo esc_attr( $opts['watermark_margin'] ); ?>"
-                                       min="0" max="200" class="small-text" /> px
+                                فاصله از لبه: <input type="number" name="<?php echo self::$option_name; ?>[watermark_margin]"
+                                       value="<?php echo esc_attr( $opts['watermark_margin'] ); ?>" min="0" max="200" class="small-text" /> px
                             </td>
                         </tr>
                     </table>
                 </div>
 
-                <!-- ===== بخش ۶: ویژگیهای سفارشی ===== -->
+                <!-- ===== بخش ۸: ویژگیهای سفارشی ===== -->
                 <div class="wcts-section">
                     <h2>🔧 ویژگیهای سفارشی</h2>
                     <table class="form-table">
@@ -695,14 +642,10 @@ class WCTS_Settings {
                                     $custom_fields = ! empty( $opts['custom_fields'] ) ? $opts['custom_fields'] : [];
                                     foreach ( $custom_fields as $i => $field ) : ?>
                                         <div class="wcts-field-row">
-                                            <input type="text"
-                                                   name="<?php echo self::$option_name; ?>[custom_fields][<?php echo $i; ?>][label]"
-                                                   value="<?php echo esc_attr( $field['label'] ); ?>"
-                                                   placeholder="عنوان (مثلاً: گارانتی)" class="regular-text" />
-                                            <input type="text"
-                                                   name="<?php echo self::$option_name; ?>[custom_fields][<?php echo $i; ?>][meta_key]"
-                                                   value="<?php echo esc_attr( $field['meta_key'] ); ?>"
-                                                   placeholder="نام متا (مثلاً: _warranty)" class="regular-text" dir="ltr" />
+                                            <input type="text" name="<?php echo self::$option_name; ?>[custom_fields][<?php echo $i; ?>][label]"
+                                                   value="<?php echo esc_attr( $field['label'] ); ?>" placeholder="عنوان (مثلاً: گارانتی)" class="regular-text" />
+                                            <input type="text" name="<?php echo self::$option_name; ?>[custom_fields][<?php echo $i; ?>][meta_key]"
+                                                   value="<?php echo esc_attr( $field['meta_key'] ); ?>" placeholder="نام متا (مثلاً: _warranty)" class="regular-text" dir="ltr" />
                                             <button type="button" class="button wcts-remove-field">حذف</button>
                                         </div>
                                     <?php endforeach; ?>
@@ -722,6 +665,7 @@ class WCTS_Settings {
             var optionName = '<?php echo self::$option_name; ?>';
             var testNonce = '<?php echo wp_create_nonce( "wcts_test_nonce" ); ?>';
 
+            // مقصدها
             $('#wcts-add-chat').on('click', function() {
                 $('#wcts-chat-ids-wrapper').append(
                     '<div class="wcts-chat-row">' +
@@ -734,14 +678,27 @@ class WCTS_Settings {
                 $(this).closest('.wcts-chat-row').remove();
             });
 
+            // ⭐ ساعتها — افزودن/حذف داینامیک
+            $('#wcts-add-time').on('click', function() {
+                $('#wcts-times-wrapper').append(
+                    '<div class="wcts-time-row">' +
+                    '<input type="time" name="' + optionName + '[schedule_times][]" class="wcts-time-input" />' +
+                    '<button type="button" class="button wcts-remove-time">🗑️ حذف</button></div>'
+                );
+            });
+            $(document).on('click', '.wcts-remove-time', function() {
+                $(this).closest('.wcts-time-row').remove();
+            });
+
+            // ویژگی سفارشی
             $('#wcts-add-field').on('click', function() {
                 var idx = $('#wcts-custom-fields-wrapper .wcts-field-row').length;
                 $('#wcts-custom-fields-wrapper').append(
                     '<div class="wcts-field-row">' +
                     '<input type="text" name="' + optionName + '[custom_fields][' + idx + '][label]" ' +
-                    'placeholder="عنوان (مثلاً: گارانتی)" class="regular-text" />' +
+                    'placeholder="عنوان" class="regular-text" />' +
                     '<input type="text" name="' + optionName + '[custom_fields][' + idx + '][meta_key]" ' +
-                    'placeholder="نام متا (مثلاً: _warranty)" class="regular-text" dir="ltr" />' +
+                    'placeholder="نام متا" class="regular-text" dir="ltr" />' +
                     '<button type="button" class="button wcts-remove-field">حذف</button></div>'
                 );
             });
@@ -749,14 +706,15 @@ class WCTS_Settings {
                 $(this).closest('.wcts-field-row').remove();
             });
 
+            // دکمه اینلاین
             $('#wcts-add-button').on('click', function() {
                 var idx = $('#wcts-buttons-wrapper .wcts-button-row').length;
                 $('#wcts-buttons-wrapper').append(
                     '<div class="wcts-button-row">' +
                     '<input type="text" name="' + optionName + '[inline_buttons][' + idx + '][text]" ' +
-                    'placeholder="متن دکمه (مثلاً: 🛒 خرید)" class="regular-text" />' +
+                    'placeholder="متن دکمه" class="regular-text" />' +
                     '<input type="text" name="' + optionName + '[inline_buttons][' + idx + '][url]" ' +
-                    'placeholder="لینک (مثلاً: {product_url})" class="large-text" dir="ltr" />' +
+                    'placeholder="لینک" class="large-text" dir="ltr" />' +
                     '<button type="button" class="button wcts-remove-button">حذف</button></div>'
                 );
             });
@@ -764,15 +722,15 @@ class WCTS_Settings {
                 $(this).closest('.wcts-button-row').remove();
             });
 
+            // placeholder
             $('.wcts-ph').on('click', function() {
                 var ph = $(this).data('ph');
-                var textarea = $('#wcts_template');
-                var start = textarea[0].selectionStart;
-                var end = textarea[0].selectionEnd;
-                var text = textarea.val();
-                textarea.val( text.substring(0, start) + ph + text.substring(end) );
-                textarea[0].selectionStart = textarea[0].selectionEnd = start + ph.length;
-                textarea.focus();
+                var ta = $('#wcts_template');
+                var start = ta[0].selectionStart, end = ta[0].selectionEnd;
+                var text = ta.val();
+                ta.val( text.substring(0, start) + ph + text.substring(end) );
+                ta[0].selectionStart = ta[0].selectionEnd = start + ph.length;
+                ta.focus();
             });
 
             $('#wcts_image_size').on('change', function() {
@@ -780,9 +738,9 @@ class WCTS_Settings {
             });
 
             $('input[name="' + optionName + '[watermark_type]"]').on('change', function() {
-                var type = $(this).val();
-                $('.wcts-wm-text-row').toggle( type === 'text' );
-                $('.wcts-wm-image-row').toggle( type === 'image' );
+                var t = $(this).val();
+                $('.wcts-wm-text-row').toggle( t === 'text' );
+                $('.wcts-wm-image-row').toggle( t === 'image' );
             });
 
             var mediaFrame;
@@ -791,15 +749,13 @@ class WCTS_Settings {
                 if ( mediaFrame ) { mediaFrame.open(); return; }
                 mediaFrame = wp.media({
                     title: 'انتخاب تصویر واترمارک',
-                    button: { text: 'استفاده از این تصویر' },
+                    button: { text: 'استفاده' },
                     multiple: false
                 });
                 mediaFrame.on('select', function() {
                     var att = mediaFrame.state().get('selection').first().toJSON();
                     $('#wcts_watermark_image_id').val(att.id);
-                    $('#wcts-watermark-preview').html(
-                        '<img src="' + att.url + '" style="max-width:150px;" />'
-                    );
+                    $('#wcts-watermark-preview').html('<img src="' + att.url + '" style="max-width:150px;" />');
                 });
                 mediaFrame.open();
             });
@@ -812,11 +768,9 @@ class WCTS_Settings {
                 $('#wcts-schedule-panel').toggle( $(this).is(':checked') );
             });
 
-            // ⭐ تست اتصال — نمایش خطبهخط
+            // تست اتصال
             $('#wcts-test-connection').on('click', function() {
-                var btn = $(this);
-                var resultBox = $('#wcts-test-result');
-
+                var btn = $(this), resultBox = $('#wcts-test-result');
                 var chatIds = [];
                 $('input[name="' + optionName + '[chat_ids][]"]').each(function() {
                     var v = $(this).val().trim();
@@ -834,30 +788,19 @@ class WCTS_Settings {
                     chat_ids: chatIds
                 }, function(response) {
                     btn.prop('disabled', false).text('ارسال پیام تست');
-
                     var html = '';
-                    if (response && response.data && response.data.html) {
-                        html = response.data.html;
-                    } else if (response && response.data && response.data.message) {
-                        html = '<div>' + response.data.message + '</div>';
-                    } else {
-                        html = '<div style="color:#b32d2e;">پاسخ نامعتبر از سرور</div>';
-                    }
+                    if (response && response.data && response.data.html) html = response.data.html;
+                    else if (response && response.data && response.data.message) html = '<div>' + response.data.message + '</div>';
                     resultBox.html(html);
                 }).fail(function(xhr) {
                     btn.prop('disabled', false).text('ارسال پیام تست');
-
-                    // حتی در خطا، اگر JSON برگشته باشه، HTML رو نشون بده
                     var html = '';
                     try {
                         var resp = JSON.parse(xhr.responseText);
-                        if (resp && resp.data && resp.data.html) {
-                            html = resp.data.html;
-                        } else if (resp && resp.data && resp.data.message) {
-                            html = '<div style="color:#b32d2e;">' + resp.data.message + '</div>';
-                        }
-                    } catch (e) {
-                        html = '<div style="color:#b32d2e;">❌ خطا در ارتباط با سرور: ' + xhr.status + '</div>';
+                        if (resp && resp.data && resp.data.html) html = resp.data.html;
+                        else if (resp && resp.data && resp.data.message) html = '<div style="color:#b32d2e;">' + resp.data.message + '</div>';
+                    } catch(e) {
+                        html = '<div style="color:#b32d2e;">خطا: ' + xhr.status + '</div>';
                     }
                     resultBox.html(html);
                 });
@@ -875,6 +818,7 @@ class WCTS_Settings {
             'send_on_new'                 => '1',
             'send_on_update'              => '0',
             'enable_manual_button'        => '1',
+            'enable_bulk_action'          => '0',
             'variable_behavior'           => 'parent_only',
             'template'                    => self::default_template(),
             'short_desc_line_emoji'       => '🔹',
@@ -895,10 +839,14 @@ class WCTS_Settings {
             'watermark_margin'            => 15,
             'custom_fields'               => [],
             'enable_schedule'             => '0',
-            'schedule_hours'              => [],
+            'schedule_times'              => [],
+            'schedule_products_per_time'  => 3,
             'schedule_product_ids'        => [],
-            'schedule_products_per_hour'  => 3,
             'schedule_last_index'         => 0,
+            'schedule_last_check_his'     => '',
+            'schedule_last_check_date'    => '',
+            'queue_interval'              => 5,
+            'queue_batch_size'            => 3,
         ];
     }
 
