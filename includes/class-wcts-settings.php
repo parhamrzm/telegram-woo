@@ -86,7 +86,6 @@ class WCTS_Settings {
         foreach ( $int_keys as $k ) {
             $out[ $k ] = isset( $input[ $k ] ) ? intval( $input[ $k ] ) : ( $defaults[ $k ] ?? 0 );
         }
-        // محدودهها
         if ( $out['queue_interval'] < 1 ) $out['queue_interval'] = 5;
         if ( $out['queue_interval'] > 60 ) $out['queue_interval'] = 60;
         if ( $out['queue_batch_size'] < 1 ) $out['queue_batch_size'] = 3;
@@ -100,7 +99,6 @@ class WCTS_Settings {
             $out[ $k ] = ! empty( $input[ $k ] ) ? '1' : '0';
         }
 
-        // Chat IDs
         $out['chat_ids'] = ! empty( $input['chat_ids'] ) && is_array( $input['chat_ids'] )
             ? array_values( array_filter( array_map( 'sanitize_text_field', $input['chat_ids'] ) ) )
             : [];
@@ -112,7 +110,6 @@ class WCTS_Settings {
                 $t = trim( sanitize_text_field( $t ) );
                 if ( $t === '' ) continue;
                 if ( ! preg_match( '/^\d{1,2}:\d{2}$/', $t ) ) continue;
-                // نرمالسازی
                 list( $h, $m ) = explode( ':', $t );
                 $h = max( 0, min( 23, intval( $h ) ) );
                 $m = max( 0, min( 59, intval( $m ) ) );
@@ -122,11 +119,9 @@ class WCTS_Settings {
             sort( $out['schedule_times'] );
         }
 
-        // محصولات پول
         $out['schedule_product_ids'] = ! empty( $input['schedule_product_ids'] ) && is_array( $input['schedule_product_ids'] )
             ? array_values( array_unique( array_map( 'intval', $input['schedule_product_ids'] ) ) ) : [];
 
-        // ویژگیهای سفارشی
         $out['custom_fields'] = [];
         if ( ! empty( $input['custom_fields'] ) && is_array( $input['custom_fields'] ) ) {
             foreach ( $input['custom_fields'] as $f ) {
@@ -138,7 +133,6 @@ class WCTS_Settings {
             }
         }
 
-        // دکمههای اینلاین
         $out['inline_buttons'] = [];
         if ( ! empty( $input['inline_buttons'] ) && is_array( $input['inline_buttons'] ) ) {
             foreach ( $input['inline_buttons'] as $b ) {
@@ -152,7 +146,6 @@ class WCTS_Settings {
             }
         }
 
-        // حفظ ایندکسهای داخلی
         $old = get_option( self::$option_name, [] );
         $out['schedule_last_index']      = intval( $old['schedule_last_index'] ?? 0 );
         $out['schedule_last_check_his']  = $old['schedule_last_check_his'] ?? '';
@@ -243,7 +236,9 @@ class WCTS_Settings {
             <form method="post" action="options.php" id="wcts-settings-form">
                 <?php settings_fields( 'wcts_settings_group' ); ?>
 
-                <!-- ===== بخش ۱: اتصال ===== -->
+                <!-- ============================================================
+                     بخش ۱: اتصال تلگرام
+                     ============================================================ -->
                 <div class="wcts-section">
                     <h2>🔗 اتصال تلگرام</h2>
                     <table class="form-table">
@@ -290,19 +285,29 @@ class WCTS_Settings {
                     </table>
                 </div>
 
-                <!-- ===== بخش ۲: زمان ارسال ===== -->
+                <!-- ============================================================
+                     بخش ۲: زمان ارسال (فوری)
+                     ============================================================ -->
                 <div class="wcts-section">
-                    <h2>⏰ زمان ارسال</h2>
+                    <h2>⏰ ارسال فوری</h2>
+                    <p class="description">
+                        این گزینهها باعث ارسال بلافاصله هنگام رویداد مشخص میشوند (بدون ورود به صف).
+                    </p>
                     <table class="form-table">
                         <tr>
-                            <th>ارسال فوری</th>
+                            <th>رویدادهای خودکار</th>
                             <td>
                                 <label><input type="checkbox" name="<?php echo self::$option_name; ?>[send_on_new]"
                                     value="1" <?php checked( $opts['send_on_new'], '1' ); ?> />
                                     ارسال خودکار هنگام <strong>انتشار محصول جدید</strong></label><br/>
                                 <label><input type="checkbox" name="<?php echo self::$option_name; ?>[send_on_update]"
                                     value="1" <?php checked( $opts['send_on_update'], '1' ); ?> />
-                                    ارسال خودکار هنگام <strong>ویرایش و ذخیره</strong> محصول</label><br/>
+                                    ارسال خودکار هنگام <strong>ویرایش و ذخیره</strong> محصول</label>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>ابزارهای دستی</th>
+                            <td>
                                 <label><input type="checkbox" name="<?php echo self::$option_name; ?>[enable_manual_button]"
                                     value="1" <?php checked( $opts['enable_manual_button'], '1' ); ?> />
                                     نمایش <strong>دکمه دستی</strong> در صفحه ویرایش محصول</label><br/>
@@ -326,58 +331,16 @@ class WCTS_Settings {
                     </table>
                 </div>
 
-                <!-- ===== بخش ۳: صف ارسال (کرون) ===== -->
-                <div class="wcts-section">
-                    <h2>📬 صف ارسال و کرون</h2>
-                    <p class="description">
-                        هر محصولی که به صف اضافه شود (دستی، bulk، یا با زمانبندی)، در زمان مقرر توسط کرون پردازش میشود.
-                    </p>
-                    <table class="form-table">
-                        <tr>
-                            <th>فاصله اجرای کرون</th>
-                            <td>
-                                <input type="number" class="small-text"
-                                       name="<?php echo self::$option_name; ?>[queue_interval]"
-                                       value="<?php echo esc_attr( $opts['queue_interval'] ); ?>"
-                                       min="1" max="60" /> دقیقه
-                                <p class="description">
-                                    هر چند دقیقه یک بار صف بررسی و پردازش شود.
-                                    <br/>⚠️ برای هاستهای اشتراکی، کمتر از <strong>5 دقیقه</strong> توصیه نمیشود.
-                                </p>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th>تعداد ارسال در هر اجرا</th>
-                            <td>
-                                <input type="number" class="small-text"
-                                       name="<?php echo self::$option_name; ?>[queue_batch_size]"
-                                       value="<?php echo esc_attr( $opts['queue_batch_size'] ); ?>"
-                                       min="1" max="20" />
-                                <p class="description">در هر بار اجرای کرون چند آیتم از صف پردازش شود.</p>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th>وضعیت کرون</th>
-                            <td>
-                                <?php
-                                $next = wp_next_scheduled( 'wcts_queue_cron' );
-                                if ( $next ) :
-                                    ?>
-                                    <span style="color:green;">✅ فعال — اجرای بعدی: <?php echo esc_html( date_i18n( 'Y/m/d H:i:s', $next ) ); ?></span>
-                                <?php else : ?>
-                                    <span style="color:red;">❌ کرون ثبت نشده</span>
-                                    <p class="description">
-                                        اگر کرون ثبت نشده، افزونه را غیرفعال و دوباره فعال کنید.
-                                    </p>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-
-                <!-- ===== بخش ۴: زمانبندی خودکار ===== -->
+                <!-- ============================================================
+                     بخش ۳: زمانبندی خودکار (افزودن خودکار به صف)
+                     ⭐ این بخش حالا قبل از صف قرار دارد
+                     ============================================================ -->
                 <div class="wcts-section">
                     <h2>⏱️ زمانبندی خودکار (افزودن خودکار به صف)</h2>
+                    <p class="description">
+                        در زمانهای مشخص، پلاگین به صورت خودکار تعدادی محصول را انتخاب و به <strong>صف ارسال</strong>
+                        اضافه میکند. صف در بخش بعدی پردازش میشود.
+                    </p>
                     <table class="form-table">
                         <tr>
                             <th>فعالسازی</th>
@@ -457,7 +420,66 @@ class WCTS_Settings {
                     </div>
                 </div>
 
-                <!-- ===== بخش ۵: قالب پیام ===== -->
+                <!-- ============================================================
+                     بخش ۴: صف ارسال و کرون
+                     ⭐ این بخش حالا بعد از زمانبندی خودکار قرار دارد
+                     ============================================================ -->
+                <div class="wcts-section">
+                    <h2>📬 صف ارسال و کرون</h2>
+                    <p class="description">
+                        هر محصولی که به صف اضافه شود (دستی، bulk، یا با زمانبندی خودکار)، در زمان مقرر
+                        توسط کرون پردازش و به تلگرام ارسال میشود.
+                        <br/>
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=wcts-queue' ) ); ?>" class="button button-secondary" style="margin-top:8px;">
+                            📋 مشاهده صف ارسال
+                        </a>
+                    </p>
+                    <table class="form-table">
+                        <tr>
+                            <th>فاصله اجرای کرون</th>
+                            <td>
+                                <input type="number" class="small-text"
+                                       name="<?php echo self::$option_name; ?>[queue_interval]"
+                                       value="<?php echo esc_attr( $opts['queue_interval'] ); ?>"
+                                       min="1" max="60" /> دقیقه
+                                <p class="description">
+                                    هر چند دقیقه یک بار صف بررسی و پردازش شود.
+                                    <br/>⚠️ برای هاستهای اشتراکی، کمتر از <strong>5 دقیقه</strong> توصیه نمیشود.
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>تعداد ارسال در هر اجرا</th>
+                            <td>
+                                <input type="number" class="small-text"
+                                       name="<?php echo self::$option_name; ?>[queue_batch_size]"
+                                       value="<?php echo esc_attr( $opts['queue_batch_size'] ); ?>"
+                                       min="1" max="20" />
+                                <p class="description">در هر بار اجرای کرون چند آیتم از صف پردازش شود.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>وضعیت کرون</th>
+                            <td>
+                                <?php
+                                $next = wp_next_scheduled( 'wcts_queue_cron' );
+                                if ( $next ) :
+                                    ?>
+                                    <span style="color:green;">✅ فعال — اجرای بعدی: <?php echo esc_html( date_i18n( 'Y/m/d H:i:s', $next ) ); ?></span>
+                                <?php else : ?>
+                                    <span style="color:red;">❌ کرون ثبت نشده</span>
+                                    <p class="description">
+                                        اگر کرون ثبت نشده، افزونه را غیرفعال و دوباره فعال کنید.
+                                    </p>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
+                <!-- ============================================================
+                     بخش ۵: قالب پیام
+                     ============================================================ -->
                 <div class="wcts-section">
                     <h2>📝 قالب پیام</h2>
                     <table class="form-table">
@@ -516,7 +538,9 @@ class WCTS_Settings {
                     <button type="button" class="button" id="wcts-add-button">+ افزودن دکمه</button>
                 </div>
 
-                <!-- ===== بخش ۶: عکسها ===== -->
+                <!-- ============================================================
+                     بخش ۶: عکسها
+                     ============================================================ -->
                 <div class="wcts-section">
                     <h2>🖼️ تنظیمات عکسها</h2>
                     <table class="form-table">
@@ -549,7 +573,9 @@ class WCTS_Settings {
                     </table>
                 </div>
 
-                <!-- ===== بخش ۷: واترمارک ===== -->
+                <!-- ============================================================
+                     بخش ۷: واترمارک
+                     ============================================================ -->
                 <div class="wcts-section">
                     <h2>💧 واترمارک</h2>
                     <table class="form-table">
@@ -630,7 +656,9 @@ class WCTS_Settings {
                     </table>
                 </div>
 
-                <!-- ===== بخش ۸: ویژگیهای سفارشی ===== -->
+                <!-- ============================================================
+                     بخش ۸: ویژگیهای سفارشی
+                     ============================================================ -->
                 <div class="wcts-section">
                     <h2>🔧 ویژگیهای سفارشی</h2>
                     <table class="form-table">
@@ -678,7 +706,7 @@ class WCTS_Settings {
                 $(this).closest('.wcts-chat-row').remove();
             });
 
-            // ⭐ ساعتها — افزودن/حذف داینامیک
+            // ساعتها — افزودن/حذف داینامیک
             $('#wcts-add-time').on('click', function() {
                 $('#wcts-times-wrapper').append(
                     '<div class="wcts-time-row">' +
