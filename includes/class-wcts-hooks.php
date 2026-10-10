@@ -4,19 +4,14 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 class WCTS_Hooks {
 
     public static function init() {
-        // ارسال خودکار
         add_action( 'woocommerce_new_product', [ __CLASS__, 'on_product_created' ], 10, 2 );
         add_action( 'woocommerce_update_product', [ __CLASS__, 'on_product_updated' ], 10, 2 );
 
-        // Bulk action
         add_filter( 'bulk_actions-edit-product', [ __CLASS__, 'register_bulk_actions' ] );
         add_filter( 'handle_bulk_actions-edit-product', [ __CLASS__, 'handle_bulk_action' ], 10, 3 );
         add_action( 'admin_notices', [ __CLASS__, 'bulk_action_notice' ] );
     }
 
-    /* ============================================================
-       ارسال خودکار
-       ============================================================ */
     public static function on_product_created( $product_id, $product ) {
         $settings = WCTS_Settings::get();
         if ( empty( $settings['send_on_new'] ) || $settings['send_on_new'] !== '1' ) return;
@@ -31,9 +26,6 @@ class WCTS_Hooks {
         self::process_send( $product_id );
     }
 
-    /* ============================================================
-       Bulk Action — افزودن به صف تلگرام
-       ============================================================ */
     public static function register_bulk_actions( $actions ) {
         $settings = WCTS_Settings::get();
         if ( empty( $settings['enable_bulk_action'] ) || $settings['enable_bulk_action'] !== '1' ) {
@@ -71,16 +63,12 @@ class WCTS_Hooks {
         );
     }
 
-    /* ============================================================
-       انتخاب محصولات برای زمانبندی خودکار
-       ============================================================ */
     public static function pick_scheduled_products( $count ) {
         $settings = WCTS_Settings::get();
         $pool = ! empty( $settings['schedule_product_ids'] )
             ? array_filter( array_map( 'intval', $settings['schedule_product_ids'] ) )
             : [];
 
-        // حالت ۱: pool خالی → رندوم
         if ( empty( $pool ) ) {
             return get_posts( [
                 'post_type'      => 'product',
@@ -92,7 +80,6 @@ class WCTS_Hooks {
             ] );
         }
 
-        // حالت ۲: pool پر → ترتیبی
         $valid_pool = [];
         foreach ( $pool as $pid ) {
             $p = wc_get_product( $pid );
@@ -125,7 +112,7 @@ class WCTS_Hooks {
     }
 
     /* ============================================================
-       پردازش ارسال یک محصول (هسته)
+       پردازش ارسال (هسته)
        ============================================================ */
     public static function process_send( $product_id, $chat_ids_override = null ) {
         $settings = WCTS_Settings::get();
@@ -152,13 +139,28 @@ class WCTS_Hooks {
         $processed_images = [];
         foreach ( $images as $img ) {
             $path = self::process_image( $img['id'], $settings );
+
+            $url = '';
             if ( $path ) {
-                $upload_dir = wp_upload_dir();
-                $url = str_replace( $upload_dir['path'], $upload_dir['url'], $path );
-                $processed_images[] = [ 'url' => $url ];
-            } else {
-                $processed_images[] = [ 'url' => $img['url'] ];
+                $url = self::path_to_url( $path );
             }
+            if ( empty( $url ) ) {
+                $url = $img['url'];
+            }
+
+            if ( ! self::is_valid_http_url( $url ) ) {
+                $original_url = wp_get_attachment_image_url( $img['id'], 'full' );
+                if ( $original_url && self::is_valid_http_url( $original_url ) ) {
+                    $url = $original_url;
+                } else {
+                    continue;
+                }
+            }
+
+            $processed_images[] = [
+                'url'  => $url,
+                'path' => $path ?: '', // ⭐ مسیر محلی برای آپلود مستقیم
+            ];
         }
 
         $api = new WCTS_Telegram_API();
@@ -172,9 +174,44 @@ class WCTS_Hooks {
         return $results;
     }
 
-    /* ============================================================
-       دکمههای اینلاین
-       ============================================================ */
+    private static function path_to_url( $path ) {
+        if ( empty( $path ) || ! is_string( $path ) ) return '';
+
+        $path = wp_normalize_path( $path );
+        $upload_dir = wp_upload_dir();
+        $basedir = wp_normalize_path( $upload_dir['basedir'] );
+        $baseurl = $upload_dir['baseurl'];
+
+        if ( strpos( $path, $basedir ) === 0 ) {
+            $relative = str_replace( $basedir, '', $path );
+            return rtrim( $baseurl, '/' ) . '/' . ltrim( $relative, '/' );
+        }
+
+        $current_path = wp_normalize_path( $upload_dir['path'] );
+        if ( strpos( $path, $current_path ) === 0 ) {
+            $relative = str_replace( $current_path, '', $path );
+            return rtrim( $upload_dir['url'], '/' ) . '/' . ltrim( $relative, '/' );
+        }
+
+        if ( function_exists( '_wp_relative_upload_path' ) ) {
+            $relative = _wp_relative_upload_path( $path );
+            if ( $relative && strpos( $relative, '..' ) === false ) {
+                return rtrim( $baseurl, '/' ) . '/' . ltrim( $relative, '/' );
+            }
+        }
+
+        return '';
+    }
+
+    private static function is_valid_http_url( $url ) {
+        if ( empty( $url ) || ! is_string( $url ) ) return false;
+        $url = trim( $url );
+        if ( strpos( $url, 'http://' ) !== 0 && strpos( $url, 'https://' ) !== 0 ) return false;
+        $parts = wp_parse_url( $url );
+        if ( empty( $parts['host'] ) ) return false;
+        return true;
+    }
+
     private static function build_inline_keyboard( $settings, $data ) {
         if ( empty( $settings['inline_buttons'] ) || ! is_array( $settings['inline_buttons'] ) ) {
             return null;
@@ -203,9 +240,6 @@ class WCTS_Hooks {
         return empty( $rows ) ? null : [ 'inline_keyboard' => $rows ];
     }
 
-    /* ============================================================
-       پردازش عکس
-       ============================================================ */
     private static function process_image( $attachment_id, $settings ) {
         $path = get_attached_file( $attachment_id );
         if ( ! $path || ! file_exists( $path ) ) return false;

@@ -65,7 +65,7 @@ class WCTS_Settings {
         $out = [];
 
         $text_keys = [
-            'bot_token', 'worker_url', 'image_size',
+            'bot_token', 'worker_url', 'image_size', 'image_method',
             'watermark_type', 'watermark_text', 'watermark_image_id',
             'watermark_position', 'watermark_color', 'variable_behavior',
             'short_desc_line_emoji',
@@ -74,7 +74,10 @@ class WCTS_Settings {
             $out[ $k ] = isset( $input[ $k ] ) ? sanitize_text_field( $input[ $k ] ) : ( $defaults[ $k ] ?? '' );
         }
 
-        // ⚠️ قالب باید Markdown رو حفظ کنه، پس wp_kses_post کافیه
+        if ( ! in_array( $out['image_method'], [ 'url', 'upload', 'auto' ], true ) ) {
+            $out['image_method'] = 'auto';
+        }
+
         $out['template'] = isset( $input['template'] )
             ? wp_kses_post( $input['template'] ) : $defaults['template'];
 
@@ -154,20 +157,52 @@ class WCTS_Settings {
         return $out;
     }
 
+    /**
+     * ⭐ لود کردن CSS/JS — با اصلاح هوک صفحات
+     */
     public static function enqueue_assets( $hook ) {
-        $allowed_hooks = [
-            'toplevel_page_wcts-settings',
-            'telegram-woo_page_wcts-queue',
-            'toplevel_page_wcts-queue',
-        ];
-        if ( ! in_array( $hook, $allowed_hooks, true ) ) return;
+        // فقط صفحات پلاگین تلگرام وو
+        if ( strpos( $hook, 'wcts' ) === false ) return;
 
         wp_enqueue_style( 'wcts-admin', WCTS_PLUGIN_URL . 'assets/admin.css', [], WCTS_VERSION );
         wp_enqueue_media();
 
+        // ⭐ بارگذاری select2 و wc-enhanced-select برای جستجوی محصول
         if ( function_exists( 'WC' ) ) {
-            wp_enqueue_script( 'wc-enhanced-select' );
+            // WooCommerce admin styles
             wp_enqueue_style( 'woocommerce_admin_styles' );
+
+            // jQuery UI (پیش‌نیاز)
+            wp_enqueue_script( 'jquery-ui-sortable' );
+            wp_enqueue_script( 'jquery-ui-autocomplete' );
+
+            // select2 (برای جستجوی محصول)
+            wp_enqueue_style( 'select2' );
+            wp_enqueue_script( 'select2' );
+
+            // wc-enhanced-select (خودش select2 رو init می‌کنه)
+            wp_enqueue_script( 'wc-enhanced-select' );
+
+            // wc-enhanced-select نیاز به wc_enhanced_select_params داره
+            if ( ! wp_script_is( 'wc-enhanced-select', 'done' ) ) {
+                $params = [
+                    'ajax_url'        => admin_url( 'admin-ajax.php' ),
+                    'search_products_nonce' => wp_create_nonce( 'search-products' ),
+                    'i18n_matches_1'  => 'یک نتیجه یافت شد',
+                    'i18n_matches_n'  => '%qty% نتیجه یافت شد',
+                    'i18n_no_matches' => 'نتیجه‌ای یافت نشد',
+                    'i18n_ajax_error' => 'خطا در بارگذاری',
+                    'i18n_input_too_short_1'  => 'حداقل یک کاراکتر وارد کنید',
+                    'i18n_input_too_short_n'  => 'حداقل %qty% کاراکتر وارد کنید',
+                    'i18n_input_too_long_1'   => 'حداکثر یک کاراکتر',
+                    'i18n_input_too_long_n'   => 'حداکثر %qty% کاراکتر',
+                    'i18n_selection_too_long_1' => 'حداکثر یک آیتم قابل انتخاب',
+                    'i18n_selection_too_long_n' => 'حداکثر %qty% آیتم قابل انتخاب',
+                    'i18n_load_more'  => 'بارگذاری بیشتر...',
+                    'i18n_searching'  => 'در حال جستجو...',
+                ];
+                wp_localize_script( 'wc-enhanced-select', 'wc_enhanced_select_params', $params );
+            }
         }
     }
 
@@ -198,12 +233,12 @@ class WCTS_Settings {
             if ( $cid === '' ) continue;
             $res = $api->test_connection( $cid );
             if ( is_array( $res ) && ! empty( $res['ok'] ) ) {
-                $success_lines[] = sprintf( '✅ %s — ارسال موفق', esc_html( $cid ) );
+                $success_lines[] = sprintf( 'موفق — %s', esc_html( $cid ) );
             } else {
                 $err = 'خطای نامشخص';
                 if ( is_array( $res ) && ! empty( $res['description'] ) ) $err = $res['description'];
                 elseif ( is_wp_error( $res ) ) $err = $res->get_error_message();
-                $error_lines[] = sprintf( '❌ %s — %s', esc_html( $cid ), esc_html( $err ) );
+                $error_lines[] = sprintf( 'ناموفق — %s : %s', esc_html( $cid ), esc_html( $err ) );
             }
         }
 
@@ -240,7 +275,7 @@ class WCTS_Settings {
                      بخش ۱: اتصال تلگرام
                      ============================================================ -->
                 <div class="wcts-section">
-                    <h2>🔗 اتصال تلگرام</h2>
+                    <h2>اتصال تلگرام</h2>
                     <table class="form-table">
                         <tr>
                             <th>توکن ربات تلگرام</th>
@@ -289,9 +324,9 @@ class WCTS_Settings {
                      بخش ۲: ارسال فوری
                      ============================================================ -->
                 <div class="wcts-section">
-                    <h2>⏰ ارسال فوری</h2>
+                    <h2>ارسال فوری</h2>
                     <p class="description">
-                        این گزینهها باعث ارسال بلافاصله هنگام رویداد مشخص میشوند (بدون ورود به صف).
+                        این گزینه‌ها باعث ارسال بلافاصله هنگام رویداد مشخص می‌شوند (بدون ورود به صف).
                     </p>
                     <table class="form-table">
                         <tr>
@@ -314,7 +349,7 @@ class WCTS_Settings {
                                 <label><input type="checkbox" name="<?php echo self::$option_name; ?>[enable_bulk_action]"
                                     value="1" <?php checked( $opts['enable_bulk_action'], '1' ); ?> />
                                     نمایش <strong>عملیات گروهی (Bulk Action)</strong> در صفحه لیست محصولات
-                                    <span style="color:#666;font-size:12px;">— انتخاب چند محصول → «افزودن به صف تلگرام»</span></label>
+                                    <span style="color:#666;font-size:12px;">— انتخاب چند محصول و افزودن به صف تلگرام</span></label>
                             </td>
                         </tr>
                         <tr>
@@ -335,19 +370,19 @@ class WCTS_Settings {
                      بخش ۳: زمانبندی خودکار
                      ============================================================ -->
                 <div class="wcts-section">
-                    <h2>⏱️ زمانبندی خودکار (افزودن خودکار به صف)</h2>
+                    <h2>زمانبندی خودکار (افزودن خودکار به صف)</h2>
                     <p class="description">
-                        در زمانهای مشخص، پلاگین به صورت خودکار تعدادی محصول را انتخاب و به <strong>صف ارسال</strong>
-                        اضافه میکند. صف در بخش بعدی پردازش میشود.
+                        در زمان‌های مشخص، پلاگین به صورت خودکار تعدادی محصول را انتخاب و به <strong>صف ارسال</strong>
+                        اضافه می‌کند. صف در بخش بعدی پردازش می‌شود.
                     </p>
                     <table class="form-table">
                         <tr>
-                            <th>فعالسازی</th>
+                            <th>فعال‌سازی</th>
                             <td>
                                 <label><input type="checkbox" id="wcts_enable_schedule"
                                     name="<?php echo self::$option_name; ?>[enable_schedule]"
                                     value="1" <?php checked( $opts['enable_schedule'], '1' ); ?> />
-                                    در زمانهای زیر، محصولات به صف اضافه شوند</label>
+                                    در زمان‌های زیر، محصولات به صف اضافه شوند</label>
                             </td>
                         </tr>
                     </table>
@@ -355,11 +390,11 @@ class WCTS_Settings {
                     <div id="wcts-schedule-panel" style="<?php echo $opts['enable_schedule'] === '1' ? '' : 'display:none;'; ?>">
                         <table class="form-table">
                             <tr>
-                                <th>ساعتهای اجرا</th>
+                                <th>ساعت‌های اجرا</th>
                                 <td>
                                     <p class="description">
                                         هر تعداد ساعت خواستی اضافه کن. وقتی کرون اجرا شد، اگر ساعتی از این لیست
-                                        در بازهی اخیر گذشته باشد، محصولات به صف اضافه میشوند.
+                                        در بازه‌ی اخیر گذشته باشد، محصولات به صف اضافه می‌شوند.
                                     </p>
                                     <div id="wcts-times-wrapper">
                                         <?php
@@ -370,12 +405,12 @@ class WCTS_Settings {
                                                        name="<?php echo self::$option_name; ?>[schedule_times][]"
                                                        value="<?php echo esc_attr( $t ); ?>"
                                                        class="wcts-time-input" />
-                                                <button type="button" class="button wcts-remove-time">🗑️ حذف</button>
+                                                <button type="button" class="button wcts-remove-time">حذف</button>
                                             </div>
                                         <?php endforeach; ?>
                                     </div>
                                     <button type="button" class="button button-primary" id="wcts-add-time">
-                                        ➕ افزودن ساعت
+                                        افزودن ساعت
                                     </button>
                                 </td>
                             </tr>
@@ -408,8 +443,8 @@ class WCTS_Settings {
                                         <?php endforeach; ?>
                                     </select>
                                     <p class="description">
-                                        ✅ اگر محصول انتخاب کنی: همانها به ترتیب چرخشی به صف اضافه میشوند.<br/>
-                                        🔄 اگر خالی بگذاری: هر بار محصولات تصادفی از کل فروشگاه انتخاب میشوند.
+                                        اگر محصول انتخاب کنی: همان‌ها به ترتیب چرخشی به صف اضافه می‌شوند.<br/>
+                                        اگر خالی بگذاری: هر بار محصولات تصادفی از کل فروشگاه انتخاب می‌شوند.
                                     </p>
                                 </td>
                             </tr>
@@ -421,13 +456,13 @@ class WCTS_Settings {
                      بخش ۴: صف ارسال و کرون
                      ============================================================ -->
                 <div class="wcts-section">
-                    <h2>📬 صف ارسال و کرون</h2>
+                    <h2>صف ارسال و کرون</h2>
                     <p class="description">
                         هر محصولی که به صف اضافه شود (دستی، bulk، یا با زمانبندی خودکار)، در زمان مقرر
-                        توسط کرون پردازش و به تلگرام ارسال میشود.
+                        توسط کرون پردازش و به تلگرام ارسال می‌شود.
                         <br/>
                         <a href="<?php echo esc_url( admin_url( 'admin.php?page=wcts-queue' ) ); ?>" class="button button-secondary" style="margin-top:8px;">
-                            📋 مشاهده صف ارسال
+                            مشاهده صف ارسال
                         </a>
                     </p>
                     <table class="form-table">
@@ -440,7 +475,7 @@ class WCTS_Settings {
                                        min="1" max="60" /> دقیقه
                                 <p class="description">
                                     هر چند دقیقه یک بار صف بررسی و پردازش شود.
-                                    <br/>⚠️ برای هاستهای اشتراکی، کمتر از <strong>5 دقیقه</strong> توصیه نمیشود.
+                                    <br/>برای هاست‌های اشتراکی، کمتر از <strong>5 دقیقه</strong> توصیه نمی‌شود.
                                 </p>
                             </td>
                         </tr>
@@ -461,9 +496,9 @@ class WCTS_Settings {
                                 $next = wp_next_scheduled( 'wcts_queue_cron' );
                                 if ( $next ) :
                                     ?>
-                                    <span style="color:green;">✅ فعال — اجرای بعدی: <?php echo esc_html( date_i18n( 'Y/m/d H:i:s', $next ) ); ?></span>
+                                    <span style="color:green;">فعال — اجرای بعدی: <?php echo esc_html( date_i18n( 'Y/m/d H:i:s', $next ) ); ?></span>
                                 <?php else : ?>
-                                    <span style="color:red;">❌ کرون ثبت نشده</span>
+                                    <span style="color:red;">کرون ثبت نشده</span>
                                     <p class="description">
                                         اگر کرون ثبت نشده، افزونه را غیرفعال و دوباره فعال کنید.
                                     </p>
@@ -474,16 +509,15 @@ class WCTS_Settings {
                 </div>
 
                 <!-- ============================================================
-                     بخش ۵: قالب پیام (با ادیتور جدید)
+                     بخش ۵: قالب پیام
                      ============================================================ -->
                 <div class="wcts-section">
-                    <h2>📝 قالب پیام</h2>
+                    <h2>قالب پیام</h2>
 
                     <table class="form-table">
                         <tr>
                             <th>متن قالب</th>
                             <td>
-                                <!-- ⭐ نوار ابزار ادیتور -->
                                 <div class="wcts-editor-toolbar">
                                     <button type="button" class="wcts-tbtn" data-action="bold" title="بولد (Ctrl+B)">
                                         <b>B</b>
@@ -498,30 +532,29 @@ class WCTS_Settings {
                                         <code>{ }</code>
                                     </button>
                                     <button type="button" class="wcts-tbtn" data-action="link" title="افزودن لینک">
-                                        🔗 لینک
+                                        لینک
                                     </button>
                                     <button type="button" class="wcts-tbtn wcts-tbtn-accent" data-action="product-link" title="لینک محصول">
-                                        🛍️ لینک محصول
+                                        لینک محصول
                                     </button>
 
                                     <span class="wcts-tb-sep"></span>
 
                                     <button type="button" class="wcts-tbtn" id="wcts-emoji-toggle" title="افزودن ایموجی">
-                                        😊 ایموجی
+                                        افزودن ایموجی
                                     </button>
 
                                     <button type="button" class="wcts-tbtn" id="wcts-help-toggle" title="راهنما">
-                                        ❓ راهنما
+                                        راهنما
                                     </button>
 
                                     <span class="wcts-tb-sep"></span>
 
-                                    <button type="button" class="wcts-tbtn" id="wcts-preview-toggle" title="پیشنمایش">
-                                        👁️ پیشنمایش
+                                    <button type="button" class="wcts-tbtn" id="wcts-preview-toggle" title="پیش‌نمایش">
+                                        پیش‌نمایش
                                     </button>
                                 </div>
 
-                                <!-- ⭐ پنل ایموجی -->
                                 <div class="wcts-emoji-panel" id="wcts-emoji-panel" style="display:none;">
                                     <div class="wcts-emoji-header">
                                         <strong>انتخاب ایموجی</strong>
@@ -533,10 +566,9 @@ class WCTS_Settings {
                                     </div>
                                 </div>
 
-                                <!-- ⭐ پنل راهنما -->
                                 <div class="wcts-help-panel" id="wcts-help-panel" style="display:none;">
                                     <div class="wcts-help-header">
-                                        <strong>راهنمای قالببندی</strong>
+                                        <strong>راهنمای قالب‌بندی</strong>
                                         <button type="button" class="wcts-emoji-close" id="wcts-help-close">×</button>
                                     </div>
                                     <div class="wcts-help-body">
@@ -554,7 +586,7 @@ class WCTS_Settings {
                                             <tr>
                                                 <td><code>`متن`</code></td>
                                                 <td><code>متن</code></td>
-                                                <td>کد درونخطی</td>
+                                                <td>کد درون‌خطی</td>
                                             </tr>
                                             <tr>
                                                 <td><code>```متن```</code></td>
@@ -568,44 +600,41 @@ class WCTS_Settings {
                                             </tr>
                                         </table>
                                         <p class="description" style="margin-top:10px;">
-                                            <strong>💡 نکته:</strong> برای لینک کردن اسم محصول،
+                                            <strong>نکته:</strong> برای لینک کردن اسم محصول،
                                             عبارت <code>{product_name}</code> را انتخاب کن و روی
-                                            <strong>🛍️ لینک محصول</strong> بزن — به صورت خودکار
-                                            <code>[{product_name}]({product_url})</code> میشود.
+                                            <strong>لینک محصول</strong> بزن — به صورت خودکار
+                                            <code>[{product_name}]({product_url})</code> می‌شود.
                                         </p>
                                     </div>
                                 </div>
 
-                                <!-- textarea -->
                                 <textarea id="wcts_template"
                                           name="<?php echo self::$option_name; ?>[template]"
                                           rows="18" class="large-text wcts-template-area" dir="rtl"><?php echo esc_textarea( $opts['template'] ); ?></textarea>
 
-                                <!-- ⭐ پیشنمایش -->
                                 <div id="wcts-preview-wrapper" class="wcts-preview-wrapper" style="display:none;">
                                     <div class="wcts-preview-header">
-                                        <strong>👁️ پیشنمایش پیام تلگرام</strong>
+                                        <strong>پیش‌نمایش پیام تلگرام</strong>
                                     </div>
                                     <div id="wcts-preview-box" class="wcts-preview-box"></div>
                                 </div>
 
                                 <p class="description" style="margin-top:10px;">
-                                    از دکمههای بالای کادر برای قالببندی استفاده کن. متن انتخابشده با کلیک روی
-                                    دکمهها، خودکار قالببندی میشود.
+                                    از دکمه‌های بالای کادر برای قالب‌بندی استفاده کن. متن انتخاب‌شده با کلیک روی
+                                    دکمه‌ها، خودکار قالب‌بندی می‌شود.
                                 </p>
 
-                                <!-- placeholder ها -->
                                 <div class="wcts-placeholders">
                                     <?php
                                     $placeholders = [
                                         '{product_name}'=>'نام محصول','{product_id}'=>'شناسه','{sku}'=>'کد SKU',
-                                        '{price}'=>'قیمت','{regular_price}'=>'قیمت اصلی','{sale_price}'=>'قیمت تخفیفدار',
+                                        '{price}'=>'قیمت','{regular_price}'=>'قیمت اصلی','{sale_price}'=>'قیمت تخفیف‌دار',
                                         '{discount_percent}'=>'درصد تخفیف','{stock_status}'=>'وضعیت موجودی',
-                                        '{stock_quantity}'=>'تعداد موجودی','{categories}'=>'دستهبندیها',
-                                        '{tags}'=>'برچسبها','{short_description}'=>'توضیح کوتاه',
-                                        '{attributes}'=>'ویژگیها','{weight}'=>'وزن','{dimensions}'=>'ابعاد',
+                                        '{stock_quantity}'=>'تعداد موجودی','{categories}'=>'دسته‌بندی‌ها',
+                                        '{tags}'=>'برچسب‌ها','{short_description}'=>'توضیح کوتاه',
+                                        '{attributes}'=>'ویژگی‌ها','{weight}'=>'وزن','{dimensions}'=>'ابعاد',
                                         '{product_url}'=>'لینک محصول','{site_name}'=>'نام سایت',
-                                        '{date}'=>'تاریخ','{custom_fields}'=>'ویژگیهای سفارشی',
+                                        '{date}'=>'تاریخ','{custom_fields}'=>'ویژگی‌های سفارشی',
                                     ];
                                     foreach ( $placeholders as $ph => $label ) : ?>
                                         <span class="wcts-ph" data-ph="<?php echo esc_attr( $ph ); ?>">
@@ -626,7 +655,7 @@ class WCTS_Settings {
                         </tr>
                     </table>
 
-                    <h3>🔘 دکمههای شیشهای تلگرام</h3>
+                    <h3>دکمه‌های شیشه‌ای تلگرام</h3>
                     <div id="wcts-buttons-wrapper">
                         <?php
                         $buttons = ! empty( $opts['inline_buttons'] ) ? $opts['inline_buttons'] : [];
@@ -644,10 +673,10 @@ class WCTS_Settings {
                 </div>
 
                 <!-- ============================================================
-                     بخش ۶: عکسها
+                     بخش ۶: عکس‌ها
                      ============================================================ -->
                 <div class="wcts-section">
-                    <h2>🖼️ تنظیمات عکسها</h2>
+                    <h2>تنظیمات عکس‌ها</h2>
                     <table class="form-table">
                         <tr>
                             <th>حداکثر تعداد عکس</th>
@@ -675,6 +704,44 @@ class WCTS_Settings {
                                               value="<?php echo esc_attr( $opts['custom_height'] ); ?>" class="small-text" /> px
                             </td>
                         </tr>
+
+                        <tr>
+                            <th>روش ارسال عکس</th>
+                            <td>
+                                <fieldset>
+                                    <label style="display:block;margin-bottom:12px;">
+                                        <input type="radio" name="<?php echo self::$option_name; ?>[image_method]"
+                                               value="url" <?php checked( $opts['image_method'], 'url' ); ?> />
+                                        <strong>ارسال با URL</strong> — سریع‌ترین روش
+                                        <span style="color:#666;font-size:12px;display:block;margin-right:24px;">
+                                            لینک عکس به تلگرام داده می‌شود و تلگرام خودش دانلود می‌کند.
+                                            اگر سایت شما Hotlink Protection دارد، ممکن است خطا بدهد.
+                                        </span>
+                                    </label>
+
+                                    <label style="display:block;margin-bottom:12px;">
+                                        <input type="radio" name="<?php echo self::$option_name; ?>[image_method]"
+                                               value="upload" <?php checked( $opts['image_method'], 'upload' ); ?> />
+                                        <strong>آپلود مستقیم</strong> — مطمئن‌ترین روش
+                                        <span style="color:#666;font-size:12px;display:block;margin-right:24px;">
+                                            عکس از سرور شما دانلود و به تلگرام آپلود می‌شود.
+                                            کمی کندتر است ولی همیشه کار می‌کند.
+                                            <br/>در این حالت، عکس‌ها به صورت تک‌تک ارسال می‌شوند (نه آلبوم).
+                                        </span>
+                                    </label>
+
+                                    <label style="display:block;margin-bottom:12px;">
+                                        <input type="radio" name="<?php echo self::$option_name; ?>[image_method]"
+                                               value="auto" <?php checked( $opts['image_method'], 'auto' ); ?> />
+                                        <strong>خودکار</strong> — پیشنهاد می‌شود
+                                        <span style="color:#666;font-size:12px;display:block;margin-right:24px;">
+                                            اول با URL تلاش می‌کند، اگر تلگرام نتوانست دانلود کند،
+                                            خودش عکس را آپلود می‌کند.
+                                        </span>
+                                    </label>
+                                </fieldset>
+                            </td>
+                        </tr>
                     </table>
                 </div>
 
@@ -682,13 +749,13 @@ class WCTS_Settings {
                      بخش ۷: واترمارک
                      ============================================================ -->
                 <div class="wcts-section">
-                    <h2>💧 واترمارک</h2>
+                    <h2>واترمارک</h2>
                     <table class="form-table">
                         <tr>
-                            <th>فعالسازی</th>
+                            <th>فعال‌سازی</th>
                             <td><label><input type="checkbox" name="<?php echo self::$option_name; ?>[watermark_enabled]"
                                 value="1" <?php checked( $opts['watermark_enabled'], '1' ); ?> />
-                                افزودن واترمارک به عکسهای ارسالی</label></td>
+                                افزودن واترمارک به عکس‌های ارسالی</label></td>
                         </tr>
                         <tr>
                             <th>نوع</th>
@@ -762,13 +829,13 @@ class WCTS_Settings {
                 </div>
 
                 <!-- ============================================================
-                     بخش ۸: ویژگیهای سفارشی
+                     بخش ۸: ویژگی‌های سفارشی
                      ============================================================ -->
                 <div class="wcts-section">
-                    <h2>🔧 ویژگیهای سفارشی</h2>
+                    <h2>ویژگی‌های سفارشی</h2>
                     <table class="form-table">
                         <tr>
-                            <th>ویژگیهای اضافی</th>
+                            <th>ویژگی‌های اضافی</th>
                             <td>
                                 <div id="wcts-custom-fields-wrapper">
                                     <?php
@@ -798,15 +865,9 @@ class WCTS_Settings {
             var optionName = '<?php echo self::$option_name; ?>';
             var testNonce = '<?php echo wp_create_nonce( "wcts_test_nonce" ); ?>';
 
-            /* ============================================================
-               ادیتور قالب پیام
-               ============================================================ */
             var $textarea = $('#wcts_template');
-
-            // ذخیره اسکرول و فوکوس textarea
             function getEditor() { return $textarea[0]; }
 
-            // درج متن در محل مکاننما یا دور انتخاب
             function insertAround(before, after, placeholder) {
                 var ta = getEditor();
                 var start = ta.selectionStart;
@@ -823,7 +884,6 @@ class WCTS_Settings {
                 updatePreview();
             }
 
-            // درج متن ساده (ایموجی)
             function insertAtCursor(str) {
                 var ta = getEditor();
                 var start = ta.selectionStart;
@@ -835,31 +895,21 @@ class WCTS_Settings {
                 updatePreview();
             }
 
-            // دکمههای نوار ابزار
             $(document).on('click', '.wcts-tbtn[data-action]', function(e) {
                 e.preventDefault();
                 var action = $(this).data('action');
 
                 switch (action) {
-                    case 'bold':
-                        insertAround('*', '*', 'متن بولد');
-                        break;
-                    case 'italic':
-                        insertAround('_', '_', 'متن ایتالیک');
-                        break;
-                    case 'code':
-                        insertAround('`', '`', 'کد');
-                        break;
-                    case 'pre':
-                        insertAround('```', '```', 'بلوک کد');
-                        break;
+                    case 'bold': insertAround('*', '*', 'متن بولد'); break;
+                    case 'italic': insertAround('_', '_', 'متن ایتالیک'); break;
+                    case 'code': insertAround('`', '`', 'کد'); break;
+                    case 'pre': insertAround('```', '```', 'بلوک کد'); break;
                     case 'link':
-                        var url = prompt('آدرس لینک را وارد کن:\n(می\u200cتونی از placeholder استفاده کنی، مثلاً {product_url})', '{product_url}');
+                        var url = prompt('آدرس لینک را وارد کن:\n(می‌تونی از placeholder استفاده کنی، مثلاً {product_url})', '{product_url}');
                         if (!url) return;
                         insertAround('[', '](' + url + ')', 'متن لینک');
                         break;
                     case 'product-link':
-                        // انتخاب فعلی را به لینک محصول تبدیل میکنه
                         var ta = getEditor();
                         var start = ta.selectionStart;
                         var end = ta.selectionEnd;
@@ -870,9 +920,6 @@ class WCTS_Settings {
                 }
             });
 
-            /* ============================================================
-               پنل ایموجی
-               ============================================================ */
             var emojiData = {
                 'پرکاربرد': ['🔥','✨','⭐','💫','💥','🎉','🎁','🎯','💯','👍','❤️','🙌','😍','🥰','😎','🤩'],
                 'محصولات و خرید': ['🛍️','🛒','📦','🏷️','💰','💵','💳','💎','👕','👟','💄','📱','⌚','👜','👗','🧴'],
@@ -886,7 +933,6 @@ class WCTS_Settings {
                 'احساسات': ['😊','😂','🤣','😍','🥰','😎','🤔','😮','😢','😡','😴','🤗','🙄','😇','🥳']
             };
 
-            // ساخت پنل ایموجی
             var $emojiCats = $('#wcts-emoji-cats');
             var $emojiGrid = $('#wcts-emoji-grid');
             var firstCat = Object.keys(emojiData)[0];
@@ -926,9 +972,6 @@ class WCTS_Settings {
                 $('#wcts-emoji-panel').slideUp(150);
             });
 
-            /* ============================================================
-               پنل راهنما
-               ============================================================ */
             $('#wcts-help-toggle').on('click', function(e) {
                 e.preventDefault();
                 $('#wcts-emoji-panel').hide();
@@ -938,26 +981,14 @@ class WCTS_Settings {
                 $('#wcts-help-panel').slideUp(150);
             });
 
-            /* ============================================================
-               پیشنمایش
-               ============================================================ */
             function renderPreview(text) {
-                // escape HTML
                 text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-                // بلوک کد
                 text = text.replace(/```([\s\S]+?)```/g, '<pre>$1</pre>');
-                // کد درونخطی
                 text = text.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-                // لینک
                 text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-                // بولد
                 text = text.replace(/\*([^*\n]+)\*/g, '<b>$1</b>');
-                // ایتالیک
                 text = text.replace(/_([^_\n]+)_/g, '<i>$1</i>');
-                // خط جدید
                 text = text.replace(/\n/g, '<br>');
-
                 return text;
             }
 
@@ -979,16 +1010,10 @@ class WCTS_Settings {
                 });
             });
 
-            /* ============================================================
-               placeholder ها (بهبود: در محل مکاننما)
-               ============================================================ */
             $('.wcts-ph').on('click', function() {
                 insertAtCursor($(this).data('ph'));
             });
 
-            /* ============================================================
-               بقیه تنظیمات (مقصدها، ساعت، ویژگی، دکمه، واترمارک)
-               ============================================================ */
             $('#wcts-add-chat').on('click', function() {
                 $('#wcts-chat-ids-wrapper').append(
                     '<div class="wcts-chat-row">' +
@@ -1005,7 +1030,7 @@ class WCTS_Settings {
                 $('#wcts-times-wrapper').append(
                     '<div class="wcts-time-row">' +
                     '<input type="time" name="' + optionName + '[schedule_times][]" class="wcts-time-input" />' +
-                    '<button type="button" class="button wcts-remove-time">🗑️ حذف</button></div>'
+                    '<button type="button" class="button wcts-remove-time">حذف</button></div>'
                 );
             });
             $(document).on('click', '.wcts-remove-time', function() {
@@ -1133,6 +1158,7 @@ class WCTS_Settings {
             'inline_buttons'              => [],
             'max_images'                  => 5,
             'image_size'                  => 'large',
+            'image_method'                => 'auto',
             'custom_width'                => 800,
             'custom_height'               => 800,
             'watermark_enabled'           => '0',

@@ -30,7 +30,7 @@ class WCTS_Admin_Page {
         <p>
             <button type="button" class="button button-primary" id="wcts-manual-send"
                     data-product-id="<?php echo esc_attr( $post->ID ); ?>">
-                📤 ارسال به تلگرام
+                ارسال به تلگرام
             </button>
         </p>
         <div id="wcts-manual-result" style="margin-top:8px;"></div>
@@ -50,20 +50,20 @@ class WCTS_Admin_Page {
                     product_id: productId,
                     _ajax_nonce: nonce
                 }, function(response) {
-                    btn.prop('disabled', false).text('📤 ارسال به تلگرام');
+                    btn.prop('disabled', false).text('ارسال به تلگرام');
                     if (response.success) {
                         $('#wcts-manual-result').html(
-                            '<span style="color:green;">✅ ' + response.data.message + '</span>'
+                            '<span style="color:green;">' + response.data.message + '</span>'
                         );
                     } else {
                         $('#wcts-manual-result').html(
-                            '<span style="color:red;">❌ ' + response.data.message + '</span>'
+                            '<span style="color:red;">' + response.data.message + '</span>'
                         );
                     }
                 }).fail(function() {
-                    btn.prop('disabled', false).text('📤 ارسال به تلگرام');
+                    btn.prop('disabled', false).text('ارسال به تلگرام');
                     $('#wcts-manual-result').html(
-                        '<span style="color:red;">❌ خطا در ارتباط با سرور</span>'
+                        '<span style="color:red;">خطا در ارتباط با سرور</span>'
                     );
                 });
             });
